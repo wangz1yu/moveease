@@ -1,0 +1,595 @@
+import React, { useState, useEffect, useRef } from 'react';
+import Navigation from './components/Navigation';
+import WorkoutCard from './components/WorkoutCard';
+import WorkoutPlayer from './components/WorkoutPlayer';
+import DNDManager from './components/DNDManager';
+import Auth from './components/Auth';
+import { AppView, Exercise, UserSettings, Language, User } from './types';
+import { TRANSLATIONS, getMockExercises, getBadges, MOCK_WEEKLY_STATS } from './constants';
+import { generateSmartWorkout } from './services/geminiService';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Coffee, Calendar, Globe, LogOut } from 'lucide-react';
+
+const SETTINGS_KEY = 'moveease_settings_v1';
+const TIMER_KEY = 'moveease_timer_v1';
+const SESSION_KEY = 'moveease_user_session';
+
+const App: React.FC = () => {
+  // --- Auth State ---
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    try {
+      const savedSession = localStorage.getItem(SESSION_KEY);
+      return savedSession ? JSON.parse(savedSession) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  const [currentView, setCurrentView] = useState<AppView>(AppView.HOME);
+  
+  // 1. Initialize Settings from Storage
+  const [userSettings, setUserSettings] = useState<UserSettings>(() => {
+    try {
+      const saved = localStorage.getItem(SETTINGS_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error("Failed to load settings", e);
+    }
+    // Default Settings
+    return {
+      sedentaryThreshold: 45,
+      notificationsEnabled: true,
+      doNotDisturb: {
+        schedules: [
+          { id: '1', label: 'Lunch Break', startTime: '12:00', endTime: '13:30', isEnabled: true },
+          { id: '2', label: 'Deep Work', startTime: '09:00', endTime: '11:00', isEnabled: false }
+        ],
+        calendarSync: false,
+        smartDetection: true
+      },
+      language: 'zh'
+    };
+  });
+
+  // Persist Settings whenever they change
+  useEffect(() => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(userSettings));
+  }, [userSettings]);
+
+  const lang = userSettings.language;
+  const t = TRANSLATIONS[lang];
+
+  // UI State for Settings
+  const [showDNDManager, setShowDNDManager] = useState(false);
+  
+  // UI State for Workout Player
+  const [activeExercise, setActiveExercise] = useState<Exercise | null>(null);
+
+  // 2. Initialize Timer from Storage & Simulate Background Time
+  const [sedentaryTime, setSedentaryTime] = useState(() => {
+    try {
+      const saved = localStorage.getItem(TIMER_KEY);
+      if (saved) {
+        const { time, lastActive, monitoring } = JSON.parse(saved);
+        // If monitoring was active, add the elapsed time since app closed
+        if (monitoring && lastActive) {
+          const now = Date.now();
+          const elapsedSeconds = Math.floor((now - lastActive) / 1000);
+          // Limit background addition to 24 hours to prevent huge jumps if opened days later
+          if (elapsedSeconds > 0 && elapsedSeconds < 86400) {
+            return time + elapsedSeconds;
+          }
+        }
+        return time;
+      }
+    } catch (e) {
+      console.error("Failed to load timer", e);
+    }
+    return 0; 
+  });
+
+  const [isMonitoring, setIsMonitoring] = useState(() => {
+    try {
+      const saved = localStorage.getItem(TIMER_KEY);
+      if (saved) return JSON.parse(saved).monitoring;
+    } catch (e) {}
+    return true;
+  });
+
+  const [isDNDActive, setIsDNDActive] = useState(false);
+  const [activeDNDLabel, setActiveDNDLabel] = useState<string>('');
+  const [alertLevel, setAlertLevel] = useState(0); // 0: None, 1: Soft, 2: Strong
+  
+  const threshold = userSettings.sedentaryThreshold * 60; 
+
+  // Initialize Alert Level based on restored time
+  useEffect(() => {
+    if (sedentaryTime > threshold + 300) setAlertLevel(2);
+    else if (sedentaryTime > threshold) setAlertLevel(1);
+    else setAlertLevel(0);
+  }, []); // Run once on mount
+
+  // Workout State
+  const [exercises, setExercises] = useState<Exercise[]>(getMockExercises(lang));
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [selectedFocus, setSelectedFocus] = useState<string>('neck');
+
+  useEffect(() => {
+    setExercises(getMockExercises(lang));
+  }, [lang]);
+
+  // Check DND Status logic
+  useEffect(() => {
+    const checkDND = () => {
+      const now = new Date();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      
+      let dndActive = false;
+      let label = '';
+
+      // 1. Check Manual Schedules
+      for (const schedule of userSettings.doNotDisturb.schedules) {
+        if (!schedule.isEnabled) continue;
+        
+        const [startH, startM] = schedule.startTime.split(':').map(Number);
+        const [endH, endM] = schedule.endTime.split(':').map(Number);
+        const startTotal = startH * 60 + startM;
+        const endTotal = endH * 60 + endM;
+
+        if (startTotal <= endTotal) {
+            if (currentMinutes >= startTotal && currentMinutes < endTotal) {
+                dndActive = true;
+                label = schedule.label;
+                break;
+            }
+        } else {
+            if (currentMinutes >= startTotal || currentMinutes < endTotal) {
+                dndActive = true;
+                label = schedule.label;
+                break;
+            }
+        }
+      }
+
+      // 2. Check Calendar Sync (Simulation)
+      if (!dndActive && userSettings.doNotDisturb.calendarSync) {
+         const mockMeetings = [
+             { start: 10 * 60, end: 11 * 60, title: 'Weekly Standup' },
+             { start: 14 * 60, end: 15 * 60, title: 'Client Call' }
+         ];
+
+         for (const m of mockMeetings) {
+             if (currentMinutes >= m.start && currentMinutes < m.end) {
+                 dndActive = true;
+                 label = `📅 ${m.title}`;
+                 break;
+             }
+         }
+      }
+
+      // 3. Check Smart Detection (Simulation)
+      if (!dndActive && userSettings.doNotDisturb.smartDetection) {
+         if (currentMinutes >= 13 * 60 && currentMinutes < 13 * 60 + 30) {
+             dndActive = true;
+             label = `🧠 ${lang === 'zh' ? '智能感知 (午休)' : 'Smart Detect (Lunch)'}`;
+         }
+      }
+
+      setIsDNDActive(dndActive);
+      setActiveDNDLabel(label);
+    };
+
+    checkDND();
+    const interval = setInterval(checkDND, 10000);
+    return () => clearInterval(interval);
+  }, [userSettings.doNotDisturb, lang]);
+
+  // 3. Timer Logic with Persistence
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    
+    // Helper to save state
+    const saveTimerState = (time: number, monitoring: boolean) => {
+        localStorage.setItem(TIMER_KEY, JSON.stringify({
+            time,
+            monitoring,
+            lastActive: Date.now()
+        }));
+    };
+
+    if (isMonitoring && !isDNDActive && !activeExercise) {
+      interval = setInterval(() => {
+        setSedentaryTime((prev) => {
+          const newValue = prev + 1;
+          
+          // Save to localStorage every second so we have the latest time if user closes app
+          saveTimerState(newValue, true);
+
+          if (newValue > threshold && alertLevel === 0) setAlertLevel(1);
+          if (newValue > threshold + 300 && alertLevel === 1) setAlertLevel(2); // +5 mins
+          return newValue;
+        });
+      }, 1000);
+    } else {
+      // Even if not running, save state so we don't accidentally add "background time" on reload if it was paused
+      saveTimerState(sedentaryTime, isMonitoring && !isDNDActive && !activeExercise);
+    }
+    
+    return () => clearInterval(interval);
+  }, [isMonitoring, alertLevel, threshold, isDNDActive, activeExercise, sedentaryTime]);
+
+  const resetTimer = () => {
+    setSedentaryTime(0);
+    setAlertLevel(0);
+    // Persist reset
+    localStorage.setItem(TIMER_KEY, JSON.stringify({
+        time: 0,
+        monitoring: isMonitoring,
+        lastActive: Date.now()
+    }));
+  };
+
+  const handleGenerateWorkout = async () => {
+    setIsGenerating(true);
+    const newPlan = await generateSmartWorkout(selectedFocus, lang);
+    setExercises(newPlan);
+    setIsGenerating(false);
+  };
+
+  const toggleLanguage = () => {
+    setUserSettings(prev => ({
+        ...prev,
+        language: prev.language === 'en' ? 'zh' : 'en'
+    }));
+  };
+
+  const handleLogin = (user: User) => {
+    setCurrentUser(user);
+    localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem(SESSION_KEY);
+    setCurrentView(AppView.HOME);
+  };
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const getProgressColor = () => {
+    if (isDNDActive) return 'stroke-indigo-200'; 
+    if (!isMonitoring) return 'stroke-gray-300';
+    if (sedentaryTime < threshold * 0.5) return 'stroke-green-500';
+    if (sedentaryTime < threshold * 0.9) return 'stroke-yellow-500';
+    return 'stroke-red-500';
+  };
+
+  // --- VIEWS ---
+
+  const renderHome = () => {
+    const progress = Math.min((sedentaryTime / threshold) * 100, 100);
+    const radius = 100;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (progress / 100) * circumference;
+
+    return (
+      <div className="flex flex-col items-center pt-8 px-6 min-h-screen bg-gray-50">
+        <header className="w-full flex justify-between items-center mb-8">
+            <div>
+                <h1 className="text-2xl font-bold text-gray-900">MoveEase</h1>
+                <p className="text-sm text-gray-500">
+                    {isDNDActive ? t.home.paused : t.home.tracking}
+                </p>
+            </div>
+            <div className={`p-2 rounded-full transition-colors ${isDNDActive ? 'bg-indigo-100 text-indigo-600' : (isMonitoring ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-500')}`}>
+                {isDNDActive ? <Moon size={20} className="fill-indigo-600" /> : <Smartphone size={20} />}
+            </div>
+        </header>
+
+        {/* Circular Timer */}
+        <div className="relative mb-10">
+            <svg className="transform -rotate-90 w-72 h-72">
+                <circle
+                    cx="144"
+                    cy="144"
+                    r={radius}
+                    stroke="currentColor"
+                    strokeWidth="15"
+                    fill="transparent"
+                    className="text-gray-200"
+                />
+                <circle
+                    cx="144"
+                    cy="144"
+                    r={radius}
+                    stroke="currentColor"
+                    strokeWidth="15"
+                    fill="transparent"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={offset}
+                    strokeLinecap="round"
+                    className={`transition-all duration-1000 ease-linear ${getProgressColor()}`}
+                />
+            </svg>
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
+                {isDNDActive ? (
+                   <Moon size={48} className="text-indigo-300 mx-auto mb-2" />
+                ) : (
+                   <div className="text-5xl font-bold text-gray-800 font-mono tracking-tighter">
+                       {formatTime(sedentaryTime)}
+                   </div>
+                )}
+                <div className="text-gray-500 text-sm mt-1 font-medium">
+                    {isDNDActive ? t.home.zzz : t.home.sedentaryTime}
+                </div>
+            </div>
+        </div>
+
+        {/* Status Indicator Area */}
+        {isDNDActive ? (
+            <div className="w-full max-w-xs mb-8 bg-indigo-50 border border-indigo-200 rounded-xl p-5 flex flex-col items-center justify-center text-center animate-pulse">
+                <div className="flex items-center text-indigo-800 font-bold mb-1">
+                    <span className="text-lg mr-2">{t.home.dndActive}</span>
+                </div>
+                <div className="bg-white/60 px-3 py-1 rounded-full text-sm font-semibold text-indigo-700 border border-indigo-100 mt-2">
+                    {activeDNDLabel}
+                </div>
+                <p className="text-xs text-indigo-400 mt-2">{t.home.autoPaused}</p>
+            </div>
+        ) : (
+            /* Action Buttons - Only show if NOT in DND */
+            <div className="flex space-x-4 w-full max-w-xs mb-8">
+                <button 
+                    onClick={() => setIsMonitoring(!isMonitoring)}
+                    className={`flex-1 py-4 rounded-xl flex items-center justify-center font-bold text-lg shadow-sm transition-transform active:scale-95 ${isMonitoring ? 'bg-white text-gray-700 border border-gray-200' : 'bg-indigo-600 text-white'}`}
+                >
+                    {isMonitoring ? <Pause className="mr-2" /> : <Play className="mr-2" />}
+                    {isMonitoring ? t.home.pause : t.home.resume}
+                </button>
+                <button 
+                    onClick={resetTimer}
+                    className="flex-1 bg-white border border-gray-200 text-indigo-600 py-4 rounded-xl flex items-center justify-center font-bold text-lg shadow-sm active:bg-indigo-50 transition-colors"
+                >
+                    <RefreshCw className="mr-2" />
+                    {t.home.moved}
+                </button>
+            </div>
+        )}
+
+        {/* Alert Card - Only if NOT DND */}
+        {alertLevel > 0 && !isDNDActive && (
+             <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4 flex items-start animate-pulse">
+                <Zap className="text-red-500 mr-3 mt-1 flex-shrink-0" />
+                <div>
+                    <h3 className="font-bold text-red-700">{t.home.timeToMove}</h3>
+                    <p className="text-sm text-red-600">
+                        {t.home.moveDesc.replace('{min}', userSettings.sedentaryThreshold.toString())}
+                    </p>
+                </div>
+             </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderWorkouts = () => (
+    <div className="px-4 py-8 min-h-screen bg-gray-50 pb-24">
+       <h2 className="text-2xl font-bold text-gray-900 mb-6">{t.workouts.title}</h2>
+       
+       {/* AI Generator Section */}
+       <div className="bg-indigo-600 rounded-2xl p-5 mb-8 text-white shadow-lg shadow-indigo-200">
+            <h3 className="font-bold text-lg mb-2 flex items-center">
+                <Zap className="mr-2 fill-yellow-400 text-yellow-400" size={20}/> 
+                {t.workouts.generatorTitle}
+            </h3>
+            <p className="text-indigo-100 text-sm mb-4">{t.workouts.generatorDesc}</p>
+            
+            <div className="flex gap-2 overflow-x-auto pb-2 mb-2 no-scrollbar">
+                {['Neck', 'Waist', 'Eyes', 'Shoulders'].map((focus) => (
+                    <button
+                        key={focus}
+                        onClick={() => setSelectedFocus(focus.toLowerCase())}
+                        className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors ${selectedFocus === focus.toLowerCase() ? 'bg-white text-indigo-700' : 'bg-indigo-700 text-indigo-200'}`}
+                    >
+                        {lang === 'zh' ? 
+                           (focus === 'Neck' ? '颈部' : focus === 'Waist' ? '腰部' : focus === 'Eyes' ? '眼部' : '肩部') 
+                           : focus}
+                    </button>
+                ))}
+            </div>
+
+            <button 
+                onClick={handleGenerateWorkout}
+                disabled={isGenerating}
+                className="w-full bg-white text-indigo-700 font-bold py-2.5 rounded-lg flex items-center justify-center disabled:opacity-70"
+            >
+                {isGenerating ? (
+                   <span className="flex items-center"><RefreshCw className="animate-spin mr-2" size={18}/> {t.workouts.generating}</span>
+                ) : t.workouts.generateBtn}
+            </button>
+       </div>
+
+       {/* Exercises List */}
+       <div className="space-y-4">
+            <h3 className="font-bold text-gray-700 mb-2">{t.workouts.recommended}</h3>
+            {exercises.map((ex) => (
+                <WorkoutCard 
+                    key={ex.id} 
+                    exercise={ex}
+                    lang={lang}
+                    onPlay={() => setActiveExercise(ex)} 
+                />
+            ))}
+       </div>
+    </div>
+  );
+
+  const renderStats = () => (
+    <div className="px-4 py-8 min-h-screen bg-gray-50 pb-24">
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">{t.stats.title}</h2>
+
+        {/* Daily Summary */}
+        <div className="grid grid-cols-2 gap-4 mb-8">
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <p className="text-gray-500 text-xs uppercase font-bold mb-1">{t.stats.todaySedentary}</p>
+                <p className="text-2xl font-bold text-indigo-600">6.5 <span className="text-sm text-gray-400 font-normal">{t.stats.units.hours}</span></p>
+            </div>
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                <p className="text-gray-500 text-xs uppercase font-bold mb-1">{t.stats.activeBreaks}</p>
+                <p className="text-2xl font-bold text-green-500">4 <span className="text-sm text-gray-400 font-normal">{t.stats.units.times}</span></p>
+            </div>
+        </div>
+
+        {/* Chart */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-8 h-80">
+            <h3 className="font-bold text-gray-700 mb-4 text-sm">{t.stats.weeklyTrends}</h3>
+            <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={MOCK_WEEKLY_STATS}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#9CA3AF'}} dy={10} />
+                    <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#9CA3AF'}} />
+                    <Tooltip cursor={{fill: '#F3F4F6'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}} />
+                    <Bar dataKey="sedentaryHours" fill="#6366f1" radius={[4, 4, 0, 0]} name="Sedentary (h)" barSize={12} />
+                    <Bar dataKey="activeBreaks" fill="#22c55e" radius={[4, 4, 0, 0]} name="Breaks" barSize={12} />
+                </BarChart>
+            </ResponsiveContainer>
+        </div>
+    </div>
+  );
+
+  const renderProfile = () => {
+    const badges = getBadges(lang);
+    return (
+    <div className="px-4 py-8 min-h-screen bg-gray-50 pb-24">
+        <div className="flex items-center space-x-4 mb-8">
+            <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center text-2xl font-bold text-indigo-600 uppercase border-2 border-indigo-200">
+                {currentUser?.name.charAt(0) || 'U'}
+            </div>
+            <div>
+                <h2 className="text-xl font-bold text-gray-900">{currentUser?.name || 'User'}</h2>
+                <p className="text-sm text-gray-500">{currentUser?.email || 'user@moveease.com'}</p>
+                <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded mt-1 inline-block font-semibold">{t.profile.plan}</span>
+            </div>
+        </div>
+
+        {/* Stats Row */}
+        <div className="flex justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6">
+            <div className="text-center w-1/3 border-r border-gray-100">
+                <p className="font-bold text-lg">12</p>
+                <p className="text-[10px] text-gray-400 uppercase">{t.profile.streak}</p>
+            </div>
+            <div className="text-center w-1/3 border-r border-gray-100">
+                <p className="font-bold text-lg">45</p>
+                <p className="text-[10px] text-gray-400 uppercase">{t.profile.workouts}</p>
+            </div>
+            <div className="text-center w-1/3">
+                <p className="font-bold text-lg">3</p>
+                <p className="text-[10px] text-gray-400 uppercase">{t.profile.badges}</p>
+            </div>
+        </div>
+
+        {/* Badges */}
+        <div className="mb-6">
+            <h3 className="font-bold text-gray-700 mb-3 flex items-center">
+                <Award className="mr-2 text-yellow-500" size={18} /> {t.profile.achievements}
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+                {badges.map(badge => (
+                    <div key={badge.id} className={`p-3 rounded-lg border flex items-center space-x-3 ${badge.unlocked ? 'bg-white border-gray-200' : 'bg-gray-100 border-gray-200 opacity-60'}`}>
+                        <div className="text-2xl">{badge.icon}</div>
+                        <div>
+                            <p className="font-bold text-sm text-gray-800">{badge.name}</p>
+                            <p className="text-[10px] text-gray-500 leading-tight">{badge.description}</p>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+
+        {/* Settings List */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
+            <button 
+              onClick={() => setShowDNDManager(true)}
+              className="w-full flex justify-between items-center p-4 border-b border-gray-50 active:bg-gray-50"
+            >
+                <div className="flex items-center">
+                    <Moon className="text-indigo-500 mr-3" size={18} />
+                    <span className="text-sm font-medium text-gray-700">{t.profile.dndSettings}</span>
+                </div>
+                <ChevronRight size={16} className="text-gray-300" />
+            </button>
+            <button className="w-full flex justify-between items-center p-4 border-b border-gray-50 active:bg-gray-50">
+                <div className="flex items-center">
+                    <Smartphone className="text-gray-400 mr-3" size={18} />
+                    <span className="text-sm font-medium text-gray-700">{t.profile.sensorSettings}</span>
+                </div>
+                <ChevronRight size={16} className="text-gray-300" />
+            </button>
+            {/* Language Switcher */}
+            <button 
+                onClick={toggleLanguage}
+                className="w-full flex justify-between items-center p-4 active:bg-gray-50"
+            >
+                <div className="flex items-center">
+                    <Globe className="text-blue-500 mr-3" size={18} />
+                    <span className="text-sm font-medium text-gray-700">{t.profile.language}</span>
+                </div>
+                <div className="flex items-center">
+                    <span className="text-xs text-gray-400 mr-2 font-medium bg-gray-100 px-2 py-1 rounded">
+                        {lang === 'en' ? 'English' : '中文'}
+                    </span>
+                    <ChevronRight size={16} className="text-gray-300" />
+                </div>
+            </button>
+        </div>
+
+        <button 
+            onClick={handleLogout}
+            className="w-full py-3 bg-white text-red-500 border border-gray-200 rounded-xl font-bold text-sm shadow-sm active:bg-gray-50 transition-colors flex items-center justify-center"
+        >
+            <LogOut size={18} className="mr-2" />
+            {t.auth.logout}
+        </button>
+    </div>
+    );
+  };
+
+  if (!currentUser) {
+    return (
+      <Auth onLogin={handleLogin} lang={lang} />
+    );
+  }
+
+  return (
+    <div className="font-sans text-gray-900 antialiased selection:bg-indigo-100 selection:text-indigo-700">
+      {activeExercise ? (
+        <WorkoutPlayer 
+            exercise={activeExercise}
+            onClose={() => setActiveExercise(null)}
+            lang={lang}
+        />
+      ) : showDNDManager ? (
+        <DNDManager 
+          settings={userSettings.doNotDisturb}
+          onUpdate={(newDND) => setUserSettings({ ...userSettings, doNotDisturb: newDND })}
+          onBack={() => setShowDNDManager(false)}
+          lang={lang}
+        />
+      ) : (
+        <>
+          {currentView === AppView.HOME && renderHome()}
+          {currentView === AppView.WORKOUTS && renderWorkouts()}
+          {currentView === AppView.STATS && renderStats()}
+          {currentView === AppView.PROFILE && renderProfile()}
+          <Navigation currentView={currentView} setView={setCurrentView} lang={lang} />
+        </>
+      )}
+    </div>
+  );
+};
+
+export default App;
