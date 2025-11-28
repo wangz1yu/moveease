@@ -6,7 +6,6 @@ export interface User {
   name: string;
   email: string;
   avatar?: string;
-  // password removed: never store or type raw passwords in the client User object
 }
 
 export interface Exercise {
@@ -63,7 +62,6 @@ export interface Badge {
 export interface Announcement {
   id: string;
   title: string;
-  date: string;
+  created_at: string; // From DB timestamp
   content: string;
-  isNew: boolean;
 }

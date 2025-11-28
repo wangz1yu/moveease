@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Navigation from './components/Navigation';
 import WorkoutCard from './components/WorkoutCard';
@@ -6,10 +7,10 @@ import DNDManager from './components/DNDManager';
 import Auth from './components/Auth';
 import Announcements from './components/Announcements';
 import { AppView, Exercise, UserSettings, User, DailyStat } from './types';
-import { TRANSLATIONS, getMockExercises, getBadges, MOCK_WEEKLY_STATS, MOCK_ANNOUNCEMENTS } from './constants';
+import { TRANSLATIONS, getMockExercises, getBadges } from './constants';
 import { generateSmartWorkout } from './services/geminiService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut, Bell, Edit2, Camera, Loader2, X, Check } from 'lucide-react';
+import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut, Bell, Edit2, Camera, Loader2 } from 'lucide-react';
 
 const SETTINGS_KEY = 'moveease_settings_v1';
 const TIMER_KEY = 'moveease_timer_v1';
@@ -351,9 +352,6 @@ const App: React.FC = () => {
                   className="p-2 rounded-full bg-white text-gray-500 shadow-sm border border-gray-100 hover:text-indigo-600 active:scale-95 transition-all relative"
                 >
                     <Bell size={20} />
-                    {MOCK_ANNOUNCEMENTS.some(a => a.isNew) && (
-                        <span className="absolute top-1 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
-                    )}
                 </button>
                 <div className={`p-2 rounded-full transition-colors ${isDNDActive ? 'bg-indigo-100 text-indigo-600' : (isMonitoring ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-500')}`}>
                     {isDNDActive ? <Moon size={20} className="fill-indigo-600" /> : <Smartphone size={20} />}
@@ -685,6 +683,7 @@ const App: React.FC = () => {
         isOpen={showAnnouncements}
         onClose={() => setShowAnnouncements(false)}
         lang={lang}
+        currentUser={currentUser}
       />
       {activeExercise ? (
         <WorkoutPlayer 

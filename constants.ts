@@ -1,5 +1,5 @@
 
-import { Badge, DailyStat, Exercise, Language, Announcement } from './types';
+import { Badge, Exercise, Language, Announcement } from './types';
 
 export const TRANSLATIONS = {
   en: {
@@ -104,6 +104,10 @@ export const TRANSLATIONS = {
     announcements: {
       title: 'Announcements',
       empty: 'No new announcements',
+      adminTitle: 'Post New Announcement (Admin)',
+      postBtn: 'Post Announcement',
+      titlePh: 'Title',
+      contentPh: 'Content goes here...',
     }
   },
   zh: {
@@ -208,6 +212,10 @@ export const TRANSLATIONS = {
     announcements: {
       title: '系统公告',
       empty: '暂无新公告',
+      adminTitle: '发布新公告 (管理员)',
+      postBtn: '发布公告',
+      titlePh: '标题',
+      contentPh: '公告内容...',
     }
   }
 };
@@ -265,36 +273,12 @@ export const getBadges = (lang: Language): Badge[] => {
   ];
 };
 
-export const MOCK_WEEKLY_STATS: DailyStat[] = [
-  { day: 'Mon', sedentaryHours: 7.5, activeBreaks: 4 },
-  { day: 'Tue', sedentaryHours: 8.2, activeBreaks: 3 },
-  { day: 'Wed', sedentaryHours: 6.0, activeBreaks: 6 },
-  { day: 'Thu', sedentaryHours: 7.8, activeBreaks: 5 },
-  { day: 'Fri', sedentaryHours: 8.5, activeBreaks: 2 },
-  { day: 'Sat', sedentaryHours: 3.2, activeBreaks: 8 },
-  { day: 'Sun', sedentaryHours: 2.5, activeBreaks: 7 },
-];
-
 export const MOCK_ANNOUNCEMENTS: Announcement[] = [
+  // Fallback data if API fails
   {
-    id: '1',
-    title: 'Welcome to MoveEase 2.0!',
-    date: '2023-10-24',
-    content: 'We are excited to launch the new version with AI workout generation and Smart DND features.',
-    isNew: true
-  },
-  {
-    id: '2',
-    title: 'Server Maintenance',
-    date: '2023-10-20',
-    content: 'Scheduled maintenance will occur on Sunday from 2 AM to 4 AM. Please plan accordingly.',
-    isNew: false
-  },
-  {
-    id: '3',
-    title: 'New Badges Added',
-    date: '2023-10-15',
-    content: 'Check out the new Achievements section! Can you unlock the "Night Owl" badge?',
-    isNew: false
+    id: 'demo-1',
+    title: 'Demo Announcement',
+    created_at: new Date().toISOString(),
+    content: 'If you see this, the API connection might be down. This is local fallback data.'
   }
 ];

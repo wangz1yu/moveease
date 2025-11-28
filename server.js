@@ -9,7 +9,7 @@ const app = express();
 const PORT = 3000;
 
 // 1. 中间件配置
-app.use(cors()); // 关键：允许来自任何前端地址的跨域请求
+app.use(cors()); // 允许跨域
 app.use(bodyParser.json());
 
 // 2. 数据库连接配置
@@ -23,7 +23,7 @@ const db = mysql.createPool({
   queueLimit: 0
 });
 
-// 3. 初始化：测试连接并自动创建用户表
+// 3. 初始化：测试连接并自动创建表
 db.getConnection((err, connection) => {
   if (err) {
     console.error('❌ 严重错误: 无法连接到数据库。');
@@ -33,8 +33,8 @@ db.getConnection((err, connection) => {
   
   console.log('✅ 数据库连接成功 (Localhost Mode)！');
 
-  // 自动创建 users 表
-  const createTableQuery = `
+  // A. 创建 users 表
+  const createUsersTable = `
     CREATE TABLE IF NOT EXISTS users (
       id INT AUTO_INCREMENT PRIMARY KEY,
       username VARCHAR(50) NOT NULL,
@@ -45,13 +45,25 @@ db.getConnection((err, connection) => {
     )
   `;
 
-  connection.query(createTableQuery, (tableErr) => {
+  // B. 创建 announcements 表
+  const createAnnouncementsTable = `
+    CREATE TABLE IF NOT EXISTS announcements (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      title VARCHAR(255) NOT NULL,
+      content TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `;
+
+  connection.query(createUsersTable, (err) => {
+    if (err) console.error('❌ 创建 users 表失败:', err.message);
+    else console.log('✅ users 表就绪');
+  });
+
+  connection.query(createAnnouncementsTable, (err) => {
+    if (err) console.error('❌ 创建 announcements 表失败:', err.message);
+    else console.log('✅ announcements 表就绪');
     connection.release();
-    if (tableErr) {
-      console.error('❌ 创建表失败:', tableErr.message);
-    } else {
-      console.log('✅ 数据表 check 完成');
-    }
   });
 });
 
@@ -145,10 +157,31 @@ app.post('/api/update-profile', (req, res) => {
   });
 });
 
+// [GET] 获取公告列表
+app.get('/api/announcements', (req, res) => {
+  const query = 'SELECT * FROM announcements ORDER BY created_at DESC LIMIT 50';
+  db.query(query, (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(results);
+  });
+});
+
+// [POST] 发布公告 (Admin)
+app.post('/api/announcements', (req, res) => {
+  const { title, content } = req.body;
+  if (!title || !content) return res.status(400).json({ message: 'Missing title or content' });
+
+  const query = 'INSERT INTO announcements (title, content) VALUES (?, ?)';
+  db.query(query, [title, content], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.status(201).json({ message: 'Announcement created', id: result.insertId });
+  });
+});
+
 // 5. 启动服务
 app.listen(PORT, '0.0.0.0', () => {
   console.log('------------------------------------------------');
   console.log(`🚀 MoveEase 后端服务已启动`);
-  console.log(`📡 监听地址: http://203.248.94.98:${PORT}`);
+  console.log(`📡 监听地址: http://sitclock.cn:${PORT}`);
   console.log('------------------------------------------------');
 });
