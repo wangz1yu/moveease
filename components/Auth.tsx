@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { User, Language } from '../types';
 import { TRANSLATIONS } from '../constants';
-import { Mail, Lock, User as UserIcon, ChevronRight, Loader2, WifiOff, AlertTriangle } from 'lucide-react';
+import { Mail, Lock, User as UserIcon, ChevronRight, Loader2, WifiOff } from 'lucide-react';
 
 interface AuthProps {
   onLogin: (user: User) => void;
   lang: Language;
 }
 
-// Remote Server IP
-const API_BASE_URL = 'http://203.248.94.98:3000/api';
+// 修改为相对路径，依靠 Nginx 转发，自动适配 HTTP/HTTPS
+const API_BASE_URL = '/api';
 
 const Auth: React.FC<AuthProps> = ({ onLogin, lang }) => {
   const [isLogin, setIsLogin] = useState(true);
@@ -23,18 +23,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin, lang }) => {
   const [useMock, setUseMock] = useState(false);
 
   const t = TRANSLATIONS[lang].auth;
-
-  // Detect Mixed Content issue (HTTPS page calling HTTP API)
-  const isMixedContent = typeof window !== 'undefined' && 
-    window.location.protocol === 'https:' && 
-    API_BASE_URL.startsWith('http:');
-
-  useEffect(() => {
-    // If mixed content is detected, default to mock mode to prevent immediate failure
-    if (isMixedContent) {
-        setUseMock(true);
-    }
-  }, [isMixedContent]);
 
   // --- MOCK / DEMO MODE LOGIC ---
   const executeMockAuth = async () => {
@@ -81,7 +69,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, lang }) => {
       } else {
         // --- REAL SERVER LOGIC ---
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout for fast failover
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
         try {
             const endpoint = isLogin ? '/login' : '/register';
@@ -99,6 +87,12 @@ const Auth: React.FC<AuthProps> = ({ onLogin, lang }) => {
             });
             
             clearTimeout(timeoutId);
+
+            // Check if response is JSON (if Nginx fails it might return HTML 404/502)
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                throw new Error("Server configuration error (API Proxy)");
+            }
 
             const data = await response.json();
 
@@ -151,15 +145,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin, lang }) => {
         <div className="bg-white rounded-2xl shadow-xl p-8 relative overflow-hidden">
           
           {/* Mode Indicator Banner */}
-          {useMock ? (
+          {useMock && (
               <div className="absolute top-0 left-0 w-full bg-orange-100 text-orange-700 text-xs font-bold py-1 text-center flex items-center justify-center">
                   <WifiOff size={12} className="mr-1" />
                   {lang === 'zh' ? '离线演示模式' : 'Offline Demo Mode'}
-              </div>
-          ) : isMixedContent && (
-             <div className="absolute top-0 left-0 w-full bg-yellow-100 text-yellow-800 text-xs font-bold py-1 text-center flex items-center justify-center">
-                  <AlertTriangle size={12} className="mr-1" />
-                  {lang === 'zh' ? '检测到 HTTPS 环境，自动启用演示模式' : 'HTTPS Detected: Using Demo Mode'}
               </div>
           )}
 
