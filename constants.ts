@@ -1,4 +1,5 @@
-import { Badge, DailyStat, Exercise, Language } from './types';
+
+import { Badge, DailyStat, Exercise, Language, Announcement } from './types';
 
 export const TRANSLATIONS = {
   en: {
@@ -8,6 +9,7 @@ export const TRANSLATIONS = {
       save: 'Save',
       back: 'Back',
       loading: 'Loading...',
+      edit: 'Edit',
     },
     auth: {
       welcome: 'Welcome to MoveEase',
@@ -78,6 +80,8 @@ export const TRANSLATIONS = {
       sensorSettings: 'Sensor Sensitivity',
       language: 'Language / 语言',
       plan: 'Free Plan',
+      editProfile: 'Edit Profile',
+      avatarUrl: 'Avatar URL',
     },
     dnd: {
       title: 'Do Not Disturb',
@@ -96,6 +100,10 @@ export const TRANSLATIONS = {
       noSchedules: 'No schedules set',
       noSchedulesDesc: "Tap 'Add New' to create a quiet time.",
       setLabel: 'Set {label}',
+    },
+    announcements: {
+      title: 'Announcements',
+      empty: 'No new announcements',
     }
   },
   zh: {
@@ -105,6 +113,7 @@ export const TRANSLATIONS = {
       save: '保存',
       back: '返回',
       loading: '加载中...',
+      edit: '编辑',
     },
     auth: {
       welcome: '欢迎使用动一下',
@@ -175,6 +184,8 @@ export const TRANSLATIONS = {
       sensorSettings: '传感器灵敏度',
       language: '语言 / Language',
       plan: '免费版',
+      editProfile: '修改资料',
+      avatarUrl: '头像链接',
     },
     dnd: {
       title: '勿扰设置',
@@ -193,6 +204,10 @@ export const TRANSLATIONS = {
       noSchedules: '暂无计划',
       noSchedulesDesc: "点击“添加”设置您的静音时段。",
       setLabel: '设置{label}',
+    },
+    announcements: {
+      title: '系统公告',
+      empty: '暂无新公告',
     }
   }
 };
@@ -242,6 +257,11 @@ export const getBadges = (lang: Language): Badge[] => {
     { id: '2', name: isZh ? '早起鸟' : 'Early Bird', icon: '🌅', unlocked: true, description: isZh ? '在上午9点前完成一次锻炼。' : 'Completed a workout before 9 AM.' },
     { id: '3', name: isZh ? '久坐马拉松' : 'Marathon Sitter', icon: '🪑', unlocked: false, description: isZh ? '避免连续坐着超过4小时。' : 'Avoided sitting for >4 hours straight.' },
     { id: '4', name: isZh ? '颈椎救星' : 'Neck Saver', icon: '🦒', unlocked: false, description: isZh ? '完成50次颈部练习。' : 'Completed 50 neck exercises.' },
+    // New Badges
+    { id: '5', name: isZh ? '夜猫子' : 'Night Owl', icon: '🦉', unlocked: false, description: isZh ? '在晚上10点后完成一次放松。' : 'Completed a relaxation session after 10 PM.' },
+    { id: '6', name: isZh ? '周末战士' : 'Weekend Warrior', icon: '⚔️', unlocked: false, description: isZh ? '在周六和周日都完成了目标。' : 'Met goals on both Saturday and Sunday.' },
+    { id: '7', name: isZh ? '专注大师' : 'Focus Master', icon: '🧘', unlocked: false, description: isZh ? '累计专注于工作/学习超过50小时。' : 'Accumulated over 50 hours of focus time.' },
+    { id: '8', name: isZh ? '社交达人' : 'Social Butterfly', icon: '🦋', unlocked: false, description: isZh ? '邀请了3位好友加入。' : 'Invited 3 friends to join.' },
   ];
 };
 
@@ -253,4 +273,28 @@ export const MOCK_WEEKLY_STATS: DailyStat[] = [
   { day: 'Fri', sedentaryHours: 8.5, activeBreaks: 2 },
   { day: 'Sat', sedentaryHours: 3.2, activeBreaks: 8 },
   { day: 'Sun', sedentaryHours: 2.5, activeBreaks: 7 },
+];
+
+export const MOCK_ANNOUNCEMENTS: Announcement[] = [
+  {
+    id: '1',
+    title: 'Welcome to MoveEase 2.0!',
+    date: '2023-10-24',
+    content: 'We are excited to launch the new version with AI workout generation and Smart DND features.',
+    isNew: true
+  },
+  {
+    id: '2',
+    title: 'Server Maintenance',
+    date: '2023-10-20',
+    content: 'Scheduled maintenance will occur on Sunday from 2 AM to 4 AM. Please plan accordingly.',
+    isNew: false
+  },
+  {
+    id: '3',
+    title: 'New Badges Added',
+    date: '2023-10-15',
+    content: 'Check out the new Achievements section! Can you unlock the "Night Owl" badge?',
+    isNew: false
+  }
 ];

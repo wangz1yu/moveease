@@ -59,3 +59,11 @@ export interface Badge {
   unlocked: boolean;
   description: string;
 }
+
+export interface Announcement {
+  id: string;
+  title: string;
+  date: string;
+  content: string;
+  isNew: boolean;
+}

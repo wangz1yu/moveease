@@ -13,9 +13,6 @@ app.use(cors()); // 关键：允许来自任何前端地址的跨域请求
 app.use(bodyParser.json());
 
 // 2. 数据库连接配置
-// 优化：既然 server.js 和 MySQL 都在同一台服务器上运行，
-// 使用 'localhost' 或 '127.0.0.1' 连接数据库是最快且最安全的。
-// 不需要通过公网 IP (203.248...) 绕一圈。
 const db = mysql.createPool({
   host: '127.0.0.1',          // 内部回环地址
   user: 'root',               // 数据库账号
@@ -129,8 +126,26 @@ app.post('/api/login', (req, res) => {
   });
 });
 
+// [POST] 更新个人资料
+app.post('/api/update-profile', (req, res) => {
+  const { id, name, avatar } = req.body;
+
+  if (!id) {
+    return res.status(400).json({ message: 'Missing user ID' });
+  }
+
+  const updateQuery = 'UPDATE users SET username = ?, avatar_url = ? WHERE id = ?';
+  db.query(updateQuery, [name, avatar, id], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    res.json({ 
+      message: 'Profile updated successfully',
+      user: { id, name, avatar }
+    });
+  });
+});
+
 // 5. 启动服务
-// 监听 0.0.0.0 表示允许来自外部互联网的连接
 app.listen(PORT, '0.0.0.0', () => {
   console.log('------------------------------------------------');
   console.log(`🚀 MoveEase 后端服务已启动`);

@@ -4,15 +4,17 @@ import WorkoutCard from './components/WorkoutCard';
 import WorkoutPlayer from './components/WorkoutPlayer';
 import DNDManager from './components/DNDManager';
 import Auth from './components/Auth';
-import { AppView, Exercise, UserSettings, User } from './types';
-import { TRANSLATIONS, getMockExercises, getBadges, MOCK_WEEKLY_STATS } from './constants';
+import Announcements from './components/Announcements';
+import { AppView, Exercise, UserSettings, User, DailyStat } from './types';
+import { TRANSLATIONS, getMockExercises, getBadges, MOCK_WEEKLY_STATS, MOCK_ANNOUNCEMENTS } from './constants';
 import { generateSmartWorkout } from './services/geminiService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut } from 'lucide-react';
+import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut, Bell, Edit2, Camera, Loader2, X, Check } from 'lucide-react';
 
 const SETTINGS_KEY = 'moveease_settings_v1';
 const TIMER_KEY = 'moveease_timer_v1';
 const SESSION_KEY = 'moveease_user_session';
+const STATS_KEY = 'moveease_stats_v1';
 
 const App: React.FC = () => {
   // --- Auth State ---
@@ -26,35 +28,92 @@ const App: React.FC = () => {
   });
 
   const [currentView, setCurrentView] = useState<AppView>(AppView.HOME);
-  
-  // 1. Initialize Settings from Storage
-  const [userSettings, setUserSettings] = useState<UserSettings>(() => {
-    try {
-      const saved = localStorage.getItem(SETTINGS_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error("Failed to load settings", e);
-    }
-    // Default Settings
-    return {
+  const [showAnnouncements, setShowAnnouncements] = useState(false);
+
+  // Helper to get user-specific storage key
+  const getUserKey = (key: string) => {
+    return currentUser ? `${key}_${currentUser.id}` : key;
+  };
+
+  // 1. Initialize Settings (Lazy loaded in useEffect to support user switching)
+  const [userSettings, setUserSettings] = useState<UserSettings>({
       sedentaryThreshold: 45,
       notificationsEnabled: true,
       doNotDisturb: {
-        schedules: [
-          { id: '1', label: 'Lunch Break', startTime: '12:00', endTime: '13:30', isEnabled: true },
-          { id: '2', label: 'Deep Work', startTime: '09:00', endTime: '11:00', isEnabled: false }
-        ],
+        schedules: [],
         calendarSync: false,
         smartDetection: true
       },
       language: 'zh'
-    };
-  });
+    });
 
-  // Persist Settings whenever they change
+  // 2. Initialize Timer & Stats
+  const [sedentaryTime, setSedentaryTime] = useState(0);
+  const [isMonitoring, setIsMonitoring] = useState(true);
+  const [weeklyStats, setWeeklyStats] = useState<DailyStat[]>([]);
+
+  // Load User Data when currentUser changes
   useEffect(() => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(userSettings));
-  }, [userSettings]);
+    if (!currentUser) return;
+
+    // A. Load Settings
+    const savedSettings = localStorage.getItem(getUserKey(SETTINGS_KEY));
+    if (savedSettings) {
+        setUserSettings(JSON.parse(savedSettings));
+    } else {
+        // Defaults for new user
+        setUserSettings({
+            sedentaryThreshold: 45,
+            notificationsEnabled: true,
+            doNotDisturb: {
+                schedules: [
+                { id: '1', label: 'Lunch Break', startTime: '12:00', endTime: '13:30', isEnabled: true }
+                ],
+                calendarSync: false,
+                smartDetection: true
+            },
+            language: 'zh'
+        });
+    }
+
+    // B. Load Timer
+    const savedTimer = localStorage.getItem(getUserKey(TIMER_KEY));
+    if (savedTimer) {
+        const { time, lastActive, monitoring } = JSON.parse(savedTimer);
+        let newTime = time;
+        if (monitoring && lastActive) {
+            const now = Date.now();
+            const elapsed = Math.floor((now - lastActive) / 1000);
+            if (elapsed > 0 && elapsed < 86400) {
+                newTime += elapsed;
+            }
+        }
+        setSedentaryTime(newTime);
+        setIsMonitoring(monitoring);
+    } else {
+        setSedentaryTime(0);
+        setIsMonitoring(true);
+    }
+
+    // C. Load Stats (Fix: New users start with 0 history)
+    const savedStats = localStorage.getItem(getUserKey(STATS_KEY));
+    if (savedStats) {
+        setWeeklyStats(JSON.parse(savedStats));
+    } else {
+        // Initialize empty stats for new users
+        const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        const emptyStats = days.map(d => ({ day: d, sedentaryHours: 0, activeBreaks: 0 }));
+        setWeeklyStats(emptyStats);
+    }
+
+  }, [currentUser]); // Trigger whenever user logs in/out
+
+  // Persist Settings
+  useEffect(() => {
+    if (currentUser) {
+        localStorage.setItem(getUserKey(SETTINGS_KEY), JSON.stringify(userSettings));
+    }
+  }, [userSettings, currentUser]);
 
   const lang = userSettings.language;
   const t = TRANSLATIONS[lang];
@@ -65,49 +124,24 @@ const App: React.FC = () => {
   // UI State for Workout Player
   const [activeExercise, setActiveExercise] = useState<Exercise | null>(null);
 
-  // 2. Initialize Timer from Storage & Simulate Background Time
-  const [sedentaryTime, setSedentaryTime] = useState(() => {
-    try {
-      const saved = localStorage.getItem(TIMER_KEY);
-      if (saved) {
-        const { time, lastActive, monitoring } = JSON.parse(saved);
-        // If monitoring was active, add the elapsed time since app closed
-        if (monitoring && lastActive) {
-          const now = Date.now();
-          const elapsedSeconds = Math.floor((now - lastActive) / 1000);
-          // Limit background addition to 24 hours to prevent huge jumps if opened days later
-          if (elapsedSeconds > 0 && elapsedSeconds < 86400) {
-            return time + elapsedSeconds;
-          }
-        }
-        return time;
-      }
-    } catch (e) {
-      console.error("Failed to load timer", e);
-    }
-    return 0; 
-  });
-
-  const [isMonitoring, setIsMonitoring] = useState(() => {
-    try {
-      const saved = localStorage.getItem(TIMER_KEY);
-      if (saved) return JSON.parse(saved).monitoring;
-    } catch (e) {}
-    return true;
-  });
+  // Profile Edit State
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editAvatar, setEditAvatar] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   const [isDNDActive, setIsDNDActive] = useState(false);
   const [activeDNDLabel, setActiveDNDLabel] = useState<string>('');
-  const [alertLevel, setAlertLevel] = useState(0); // 0: None, 1: Soft, 2: Strong
+  const [alertLevel, setAlertLevel] = useState(0); 
   
   const threshold = userSettings.sedentaryThreshold * 60; 
 
-  // Initialize Alert Level based on restored time
+  // Initialize Alert Level
   useEffect(() => {
     if (sedentaryTime > threshold + 300) setAlertLevel(2);
     else if (sedentaryTime > threshold) setAlertLevel(1);
     else setAlertLevel(0);
-  }, []); // Run once on mount
+  }, [sedentaryTime, threshold]);
 
   // Workout State
   const [exercises, setExercises] = useState<Exercise[]>(getMockExercises(lang));
@@ -127,10 +161,8 @@ const App: React.FC = () => {
       let dndActive = false;
       let label = '';
 
-      // 1. Check Manual Schedules
       for (const schedule of userSettings.doNotDisturb.schedules) {
         if (!schedule.isEnabled) continue;
-        
         const [startH, startM] = schedule.startTime.split(':').map(Number);
         const [endH, endM] = schedule.endTime.split(':').map(Number);
         const startTotal = startH * 60 + startM;
@@ -151,23 +183,10 @@ const App: React.FC = () => {
         }
       }
 
-      // 2. Check Calendar Sync (Simulation)
       if (!dndActive && userSettings.doNotDisturb.calendarSync) {
-         const mockMeetings = [
-             { start: 10 * 60, end: 11 * 60, title: 'Weekly Standup' },
-             { start: 14 * 60, end: 15 * 60, title: 'Client Call' }
-         ];
-
-         for (const m of mockMeetings) {
-             if (currentMinutes >= m.start && currentMinutes < m.end) {
-                 dndActive = true;
-                 label = `📅 ${m.title}`;
-                 break;
-             }
-         }
+         // Simulation
       }
 
-      // 3. Check Smart Detection (Simulation)
       if (!dndActive && userSettings.doNotDisturb.smartDetection) {
          if (currentMinutes >= 13 * 60 && currentMinutes < 13 * 60 + 30) {
              dndActive = true;
@@ -184,49 +203,58 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [userSettings.doNotDisturb, lang]);
 
-  // 3. Timer Logic with Persistence
+  // Timer Logic with Persistence
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     
-    // Helper to save state
-    const saveTimerState = (time: number, monitoring: boolean) => {
-        localStorage.setItem(TIMER_KEY, JSON.stringify({
-            time,
-            monitoring,
-            lastActive: Date.now()
-        }));
-    };
-
-    if (isMonitoring && !isDNDActive && !activeExercise) {
+    if (isMonitoring && !isDNDActive && !activeExercise && currentUser) {
       interval = setInterval(() => {
         setSedentaryTime((prev: number) => {
           const newValue = prev + 1;
           
-          // Save to localStorage every second so we have the latest time if user closes app
-          saveTimerState(newValue, true);
+          localStorage.setItem(getUserKey(TIMER_KEY), JSON.stringify({
+            time: newValue,
+            monitoring: true,
+            lastActive: Date.now()
+          }));
 
-          if (newValue > threshold && alertLevel === 0) setAlertLevel(1);
-          if (newValue > threshold + 300 && alertLevel === 1) setAlertLevel(2); // +5 mins
           return newValue;
         });
       }, 1000);
-    } else {
-      // Even if not running, save state so we don't accidentally add "background time" on reload if it was paused
-      saveTimerState(sedentaryTime, isMonitoring && !isDNDActive && !activeExercise);
+    } else if (currentUser) {
+      localStorage.setItem(getUserKey(TIMER_KEY), JSON.stringify({
+        time: sedentaryTime,
+        monitoring: isMonitoring,
+        lastActive: Date.now()
+      }));
     }
     
     return () => clearInterval(interval);
-  }, [isMonitoring, alertLevel, threshold, isDNDActive, activeExercise, sedentaryTime]);
+  }, [isMonitoring, isDNDActive, activeExercise, sedentaryTime, currentUser]);
 
   const resetTimer = () => {
     setSedentaryTime(0);
     setAlertLevel(0);
-    // Persist reset
-    localStorage.setItem(TIMER_KEY, JSON.stringify({
-        time: 0,
-        monitoring: isMonitoring,
-        lastActive: Date.now()
-    }));
+    if (currentUser) {
+        localStorage.setItem(getUserKey(TIMER_KEY), JSON.stringify({
+            time: 0,
+            monitoring: isMonitoring,
+            lastActive: Date.now()
+        }));
+        // Update mock stats for today (simple increment)
+        const today = new Date().getDay(); // 0 is Sun
+        const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const dayLabel = dayLabels[today];
+        
+        const newStats = weeklyStats.map(s => {
+            if (s.day === dayLabel) {
+                return { ...s, activeBreaks: s.activeBreaks + 1 };
+            }
+            return s;
+        });
+        setWeeklyStats(newStats);
+        localStorage.setItem(getUserKey(STATS_KEY), JSON.stringify(newStats));
+    }
   };
 
   const handleGenerateWorkout = async () => {
@@ -252,6 +280,38 @@ const App: React.FC = () => {
     setCurrentUser(null);
     localStorage.removeItem(SESSION_KEY);
     setCurrentView(AppView.HOME);
+    setSedentaryTime(0);
+    setWeeklyStats([]);
+  };
+
+  const handleUpdateProfile = async () => {
+      if (!currentUser) return;
+      setIsSavingProfile(true);
+      try {
+          // Call API
+          const response = await fetch('/api/update-profile', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  id: currentUser.id,
+                  name: editName,
+                  avatar: editAvatar
+              })
+          });
+          
+          if (!response.ok) throw new Error('Failed to update');
+          
+          // Update local state
+          const updatedUser = { ...currentUser, name: editName, avatar: editAvatar };
+          setCurrentUser(updatedUser);
+          localStorage.setItem(SESSION_KEY, JSON.stringify(updatedUser));
+          setIsEditingProfile(false);
+      } catch (e) {
+          console.error(e);
+          alert('Failed to update profile');
+      } finally {
+          setIsSavingProfile(false);
+      }
   };
 
   const formatTime = (seconds: number) => {
@@ -285,8 +345,19 @@ const App: React.FC = () => {
                     {isDNDActive ? t.home.paused : t.home.tracking}
                 </p>
             </div>
-            <div className={`p-2 rounded-full transition-colors ${isDNDActive ? 'bg-indigo-100 text-indigo-600' : (isMonitoring ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-500')}`}>
-                {isDNDActive ? <Moon size={20} className="fill-indigo-600" /> : <Smartphone size={20} />}
+            <div className="flex items-center space-x-3">
+                <button 
+                  onClick={() => setShowAnnouncements(true)}
+                  className="p-2 rounded-full bg-white text-gray-500 shadow-sm border border-gray-100 hover:text-indigo-600 active:scale-95 transition-all relative"
+                >
+                    <Bell size={20} />
+                    {MOCK_ANNOUNCEMENTS.some(a => a.isNew) && (
+                        <span className="absolute top-1 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                    )}
+                </button>
+                <div className={`p-2 rounded-full transition-colors ${isDNDActive ? 'bg-indigo-100 text-indigo-600' : (isMonitoring ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-500')}`}>
+                    {isDNDActive ? <Moon size={20} className="fill-indigo-600" /> : <Smartphone size={20} />}
+                </div>
             </div>
         </header>
 
@@ -341,7 +412,7 @@ const App: React.FC = () => {
                 <p className="text-xs text-indigo-400 mt-2">{t.home.autoPaused}</p>
             </div>
         ) : (
-            /* Action Buttons - Only show if NOT in DND */
+            /* Action Buttons */
             <div className="flex space-x-4 w-full max-w-xs mb-8">
                 <button 
                     onClick={() => setIsMonitoring(!isMonitoring)}
@@ -360,7 +431,7 @@ const App: React.FC = () => {
             </div>
         )}
 
-        {/* Alert Card - Only if NOT DND */}
+        {/* Alert Card */}
         {alertLevel > 0 && !isDNDActive && (
              <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4 flex items-start animate-pulse">
                 <Zap className="text-red-500 mr-3 mt-1 flex-shrink-0" />
@@ -380,28 +451,12 @@ const App: React.FC = () => {
     <div className="px-4 py-8 min-h-screen bg-gray-50 pb-24">
        <h2 className="text-2xl font-bold text-gray-900 mb-6">{t.workouts.title}</h2>
        
-       {/* AI Generator Section */}
        <div className="bg-indigo-600 rounded-2xl p-5 mb-8 text-white shadow-lg shadow-indigo-200">
             <h3 className="font-bold text-lg mb-2 flex items-center">
                 <Zap className="mr-2 fill-yellow-400 text-yellow-400" size={20}/> 
                 {t.workouts.generatorTitle}
             </h3>
             <p className="text-indigo-100 text-sm mb-4">{t.workouts.generatorDesc}</p>
-            
-            <div className="flex gap-2 overflow-x-auto pb-2 mb-2 no-scrollbar">
-                {['Neck', 'Waist', 'Eyes', 'Shoulders'].map((focus) => (
-                    <button
-                        key={focus}
-                        onClick={() => setSelectedFocus(focus.toLowerCase())}
-                        className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors ${selectedFocus === focus.toLowerCase() ? 'bg-white text-indigo-700' : 'bg-indigo-700 text-indigo-200'}`}
-                    >
-                        {lang === 'zh' ? 
-                           (focus === 'Neck' ? '颈部' : focus === 'Waist' ? '腰部' : focus === 'Eyes' ? '眼部' : '肩部') 
-                           : focus}
-                    </button>
-                ))}
-            </div>
-
             <button 
                 onClick={handleGenerateWorkout}
                 disabled={isGenerating}
@@ -413,7 +468,6 @@ const App: React.FC = () => {
             </button>
        </div>
 
-       {/* Exercises List */}
        <div className="space-y-4">
             <h3 className="font-bold text-gray-700 mb-2">{t.workouts.recommended}</h3>
             {exercises.map((ex) => (
@@ -432,23 +486,27 @@ const App: React.FC = () => {
     <div className="px-4 py-8 min-h-screen bg-gray-50 pb-24">
         <h2 className="text-2xl font-bold text-gray-900 mb-6">{t.stats.title}</h2>
 
-        {/* Daily Summary */}
         <div className="grid grid-cols-2 gap-4 mb-8">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                 <p className="text-gray-500 text-xs uppercase font-bold mb-1">{t.stats.todaySedentary}</p>
-                <p className="text-2xl font-bold text-indigo-600">6.5 <span className="text-sm text-gray-400 font-normal">{t.stats.units.hours}</span></p>
+                <p className="text-2xl font-bold text-indigo-600">
+                    {(sedentaryTime / 3600).toFixed(1)} <span className="text-sm text-gray-400 font-normal">{t.stats.units.hours}</span>
+                </p>
             </div>
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                 <p className="text-gray-500 text-xs uppercase font-bold mb-1">{t.stats.activeBreaks}</p>
-                <p className="text-2xl font-bold text-green-500">4 <span className="text-sm text-gray-400 font-normal">{t.stats.units.times}</span></p>
+                <p className="text-2xl font-bold text-green-500">
+                     {/* Show breaks for today based on current day index */}
+                     {weeklyStats[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1]?.activeBreaks || 0}
+                     <span className="text-sm text-gray-400 font-normal">{t.stats.units.times}</span>
+                </p>
             </div>
         </div>
 
-        {/* Chart */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-8 h-80">
             <h3 className="font-bold text-gray-700 mb-4 text-sm">{t.stats.weeklyTrends}</h3>
             <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={MOCK_WEEKLY_STATS}>
+                <BarChart data={weeklyStats}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                     <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#9CA3AF'}} dy={10} />
                     <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#9CA3AF'}} />
@@ -465,18 +523,85 @@ const App: React.FC = () => {
     const badges = getBadges(lang);
     return (
     <div className="px-4 py-8 min-h-screen bg-gray-50 pb-24">
-        <div className="flex items-center space-x-4 mb-8">
-            <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center text-2xl font-bold text-indigo-600 uppercase border-2 border-indigo-200">
-                {currentUser?.name.charAt(0) || 'U'}
+        {/* Profile Header */}
+        <div className="flex items-center space-x-4 mb-8 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+            <div className="relative">
+                {currentUser?.avatar ? (
+                    <img src={currentUser.avatar} alt="Avatar" className="w-16 h-16 rounded-full object-cover border-2 border-indigo-200" />
+                ) : (
+                    <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center text-2xl font-bold text-indigo-600 uppercase border-2 border-indigo-200">
+                        {currentUser?.name.charAt(0) || 'U'}
+                    </div>
+                )}
+                <button 
+                  onClick={() => {
+                      setEditName(currentUser?.name || '');
+                      setEditAvatar(currentUser?.avatar || '');
+                      setIsEditingProfile(true);
+                  }}
+                  className="absolute bottom-0 right-0 bg-indigo-600 text-white p-1.5 rounded-full shadow-md border-2 border-white hover:bg-indigo-700 active:scale-95 transition-all"
+                >
+                    <Edit2 size={12} />
+                </button>
             </div>
-            <div>
-                <h2 className="text-xl font-bold text-gray-900">{currentUser?.name || 'User'}</h2>
-                <p className="text-sm text-gray-500">{currentUser?.email || 'user@moveease.com'}</p>
+            <div className="flex-1 min-w-0">
+                <h2 className="text-xl font-bold text-gray-900 truncate">{currentUser?.name || 'User'}</h2>
+                <p className="text-sm text-gray-500 truncate">{currentUser?.email}</p>
                 <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded mt-1 inline-block font-semibold">{t.profile.plan}</span>
             </div>
         </div>
 
-        {/* Stats Row */}
+        {/* Edit Profile Modal */}
+        {isEditingProfile && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsEditingProfile(false)} />
+                <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl z-10 p-6 animate-in zoom-in-95">
+                    <h3 className="text-lg font-bold text-gray-900 mb-4">{t.profile.editProfile}</h3>
+                    
+                    <div className="space-y-4">
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 mb-1 block">{t.auth.name}</label>
+                            <input 
+                                type="text" 
+                                value={editName}
+                                onChange={(e) => setEditName(e.target.value)}
+                                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-200 outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 mb-1 block">{t.profile.avatarUrl}</label>
+                            <div className="relative">
+                                <Camera className="absolute left-3 top-3 text-gray-400" size={18} />
+                                <input 
+                                    type="text" 
+                                    value={editAvatar}
+                                    onChange={(e) => setEditAvatar(e.target.value)}
+                                    placeholder="https://..."
+                                    className="w-full pl-10 pr-3 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-200 outline-none"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex space-x-3 mt-6">
+                        <button 
+                            onClick={() => setIsEditingProfile(false)}
+                            className="flex-1 py-3 text-gray-600 font-bold bg-gray-100 rounded-xl"
+                        >
+                            {t.common.cancel}
+                        </button>
+                        <button 
+                            onClick={handleUpdateProfile}
+                            disabled={isSavingProfile}
+                            className="flex-1 py-3 text-white font-bold bg-indigo-600 rounded-xl flex items-center justify-center"
+                        >
+                            {isSavingProfile ? <Loader2 className="animate-spin" size={20} /> : t.common.save}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
         <div className="flex justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6">
             <div className="text-center w-1/3 border-r border-gray-100">
                 <p className="font-bold text-lg">12</p>
@@ -492,7 +617,6 @@ const App: React.FC = () => {
             </div>
         </div>
 
-        {/* Badges */}
         <div className="mb-6">
             <h3 className="font-bold text-gray-700 mb-3 flex items-center">
                 <Award className="mr-2 text-yellow-500" size={18} /> {t.profile.achievements}
@@ -510,7 +634,6 @@ const App: React.FC = () => {
             </div>
         </div>
 
-        {/* Settings List */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
             <button 
               onClick={() => setShowDNDManager(true)}
@@ -522,14 +645,6 @@ const App: React.FC = () => {
                 </div>
                 <ChevronRight size={16} className="text-gray-300" />
             </button>
-            <button className="w-full flex justify-between items-center p-4 border-b border-gray-50 active:bg-gray-50">
-                <div className="flex items-center">
-                    <Smartphone className="text-gray-400 mr-3" size={18} />
-                    <span className="text-sm font-medium text-gray-700">{t.profile.sensorSettings}</span>
-                </div>
-                <ChevronRight size={16} className="text-gray-300" />
-            </button>
-            {/* Language Switcher */}
             <button 
                 onClick={toggleLanguage}
                 className="w-full flex justify-between items-center p-4 active:bg-gray-50"
@@ -566,6 +681,11 @@ const App: React.FC = () => {
 
   return (
     <div className="font-sans text-gray-900 antialiased selection:bg-indigo-100 selection:text-indigo-700">
+      <Announcements 
+        isOpen={showAnnouncements}
+        onClose={() => setShowAnnouncements(false)}
+        lang={lang}
+      />
       {activeExercise ? (
         <WorkoutPlayer 
             exercise={activeExercise}
