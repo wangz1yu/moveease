@@ -26,7 +26,7 @@ const Announcements: React.FC<AnnouncementsProps> = ({ isOpen, onClose, lang, cu
 
   // Check Admin Privilege (Updated domain)
   useEffect(() => {
-    if (currentUser && currentUser.email === 'admin@sitclock.cn') {
+    if (currentUser && currentUser.email === 'admin@sitclock.com') {
         setIsAdmin(true);
     } else {
         setIsAdmin(false);

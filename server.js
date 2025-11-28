@@ -182,6 +182,6 @@ app.post('/api/announcements', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log('------------------------------------------------');
   console.log(`🚀 MoveEase 后端服务已启动`);
-  console.log(`📡 监听地址: http://sitclock.cn:${PORT}`);
+  console.log(`📡 监听地址: http://sitclock.com:${PORT}`);
   console.log('------------------------------------------------');
 });
