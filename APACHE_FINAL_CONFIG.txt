@@ -1,0 +1,67 @@
+<VirtualHost *:443>
+    ServerAdmin webmaster@example.com
+    DocumentRoot "/www/wwwroot/www.sitclock.com/"
+    ServerName SSL.www.sitclock.com
+    ServerAlias www.sitclock.com 
+    
+    # 错误日志
+    ErrorLog "/www/wwwlogs/www.sitclock.com-error_log"
+    CustomLog "/www/wwwlogs/www.sitclock.com-access_log" combined
+    
+    # SSL 配置 (请确保路径正确，宝塔默认路径如下)
+    SSLEngine On
+    SSLCertificateFile /www/server/panel/vhost/cert/www.sitclock.com/fullchain.pem
+    SSLCertificateKeyFile /www/server/panel/vhost/cert/www.sitclock.com/privkey.pem
+    SSLCipherSuite EECDH+CHACHA20:EECDH+CHACHA20-draft:EECDH+AES128:RSA+AES128:EECDH+AES256:RSA+AES256:EECDH+3DES:RSA+3DES:!MD5:ALL:!ADH:!EXPORT56:RC4+RSA:+HIGH:+MEDIUM:+LOW:+SSLv2:+EXP:+eNULL
+    SSLProtocol All -SSLv2 -SSLv3 -TLSv1
+    SSLHonorCipherOrder On
+
+    # =====================================================
+    # 核心修复: 反向代理 (必须放在 Directory 之前)
+    # =====================================================
+    
+    SSLProxyEngine On
+    ProxyRequests Off
+    ProxyPreserveHost On
+
+    # 1. 优先处理 API 请求 (转发给 Node.js :3000)
+    # 注意: 不使用 Location 标签，直接指令优先级更高
+    ProxyPass /api/ http://127.0.0.1:3000/api/
+    ProxyPassReverse /api/ http://127.0.0.1:3000/api/
+
+    # =====================================================
+    # 前端配置
+    # =====================================================
+
+    # DENY FILES
+     <Files ~ (\.user.ini|\.htaccess|\.git|\.env|\.svn|\.project|LICENSE|README.md)$>
+       Order allow,deny
+       Deny from all
+    </Files>
+
+    # PHP 配置 (保留以防万一)
+    <FilesMatch \.php$>
+            SetHandler "proxy:unix:/tmp/php-cgi-00.sock|fcgi://localhost"
+    </FilesMatch>
+
+    # 目录权限与 React 路由
+    <Directory "/www/wwwroot/www.sitclock.com/">
+        SetOutputFilter DEFLATE
+        Options FollowSymLinks
+        AllowOverride All
+        Require all granted
+        DirectoryIndex index.html index.php
+
+        # React 单页应用路由支持
+        RewriteEngine On
+        
+        # 如果请求的是 /api/ 开头的，不要进行 Rewrite (双重保险)
+        RewriteCond %{REQUEST_URI} ^/api/
+        RewriteRule ^ - [L]
+
+        # 如果文件不存在，重定向到 index.html
+        RewriteCond %{REQUEST_FILENAME} !-f
+        RewriteCond %{REQUEST_FILENAME} !-d
+        RewriteRule . /index.html [L]
+    </Directory>
+</VirtualHost>

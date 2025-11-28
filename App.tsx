@@ -147,6 +147,7 @@ const App: React.FC = () => {
   // Workout State
   const [exercises, setExercises] = useState<Exercise[]>(getMockExercises(lang));
   const [isGenerating, setIsGenerating] = useState(false);
+  // FIX: Removed unused setSelectedFocus
   const [selectedFocus] = useState<string>('neck');
 
   useEffect(() => {

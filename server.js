@@ -12,6 +12,13 @@ const PORT = 3000;
 app.use(cors()); // 允许跨域
 app.use(bodyParser.json());
 
+// [新增] 请求日志中间件：帮您查看请求是否到达了后端
+app.use((req, res, next) => {
+  const time = new Date().toLocaleTimeString();
+  console.log(`[${time}] 收到请求: ${req.method} ${req.url}`);
+  next();
+});
+
 // 2. 数据库连接配置
 const db = mysql.createPool({
   host: '127.0.0.1',          // 内部回环地址
@@ -68,6 +75,11 @@ db.getConnection((err, connection) => {
 });
 
 // 4. API 路由接口
+
+// [新增] 根路由检查
+app.get('/', (req, res) => {
+  res.send('✅ MoveEase Backend is running! v1.0');
+});
 
 // [POST] 注册接口
 app.post('/api/register', (req, res) => {
@@ -182,6 +194,6 @@ app.post('/api/announcements', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log('------------------------------------------------');
   console.log(`🚀 MoveEase 后端服务已启动`);
-  console.log(`📡 监听地址: http://sitclock.com:${PORT}`);
+  console.log(`📡 监听地址: http://www.sitclock.com:${PORT}`);
   console.log('------------------------------------------------');
 });
