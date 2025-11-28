@@ -6,16 +6,17 @@ import WorkoutPlayer from './components/WorkoutPlayer';
 import DNDManager from './components/DNDManager';
 import Auth from './components/Auth';
 import Announcements from './components/Announcements';
-import { AppView, Exercise, UserSettings, User, DailyStat } from './types';
-import { TRANSLATIONS, getMockExercises, getBadges } from './constants';
+import { AppView, Exercise, UserSettings, User, DailyStat, UserStats, Quote } from './types';
+import { TRANSLATIONS, getMockExercises, getBadges, INSPIRATIONAL_QUOTES } from './constants';
 import { generateSmartWorkout } from './services/geminiService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut, Bell, Edit2, Camera, Loader2 } from 'lucide-react';
+import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut, Bell, Edit2, Camera, Loader2, Quote as QuoteIcon } from 'lucide-react';
 
 const SETTINGS_KEY = 'moveease_settings_v1';
 const TIMER_KEY = 'moveease_timer_v1';
 const SESSION_KEY = 'moveease_user_session';
 const STATS_KEY = 'moveease_stats_v1';
+const USER_STATS_KEY = 'moveease_user_profile_stats';
 
 const App: React.FC = () => {
   // --- Auth State ---
@@ -36,15 +37,11 @@ const App: React.FC = () => {
     return currentUser ? `${key}_${currentUser.id}` : key;
   };
 
-  // 1. Initialize Settings (Lazy loaded in useEffect to support user switching)
+  // 1. Initialize Settings
   const [userSettings, setUserSettings] = useState<UserSettings>({
       sedentaryThreshold: 45,
       notificationsEnabled: true,
-      doNotDisturb: {
-        schedules: [],
-        calendarSync: false,
-        smartDetection: true
-      },
+      doNotDisturb: { schedules: [], calendarSync: false, smartDetection: true },
       language: 'zh'
     });
 
@@ -52,6 +49,16 @@ const App: React.FC = () => {
   const [sedentaryTime, setSedentaryTime] = useState(0);
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [weeklyStats, setWeeklyStats] = useState<DailyStat[]>([]);
+  
+  // 3. User Gamification Stats
+  const [userStats, setUserStats] = useState<UserStats>({
+      totalWorkouts: 0,
+      currentStreak: 0,
+      lastWorkoutDate: null
+  });
+
+  // 4. Daily Quote
+  const [dailyQuote, setDailyQuote] = useState<Quote>(INSPIRATIONAL_QUOTES[0]);
 
   // Load User Data when currentUser changes
   useEffect(() => {
@@ -62,17 +69,10 @@ const App: React.FC = () => {
     if (savedSettings) {
         setUserSettings(JSON.parse(savedSettings));
     } else {
-        // Defaults for new user
         setUserSettings({
             sedentaryThreshold: 45,
             notificationsEnabled: true,
-            doNotDisturb: {
-                schedules: [
-                { id: '1', label: 'Lunch Break', startTime: '12:00', endTime: '13:30', isEnabled: true }
-                ],
-                calendarSync: false,
-                smartDetection: true
-            },
+            doNotDisturb: { schedules: [], calendarSync: false, smartDetection: true },
             language: 'zh'
         });
     }
@@ -96,18 +96,29 @@ const App: React.FC = () => {
         setIsMonitoring(true);
     }
 
-    // C. Load Stats (Fix: New users start with 0 history)
+    // C. Load Weekly Stats
     const savedStats = localStorage.getItem(getUserKey(STATS_KEY));
     if (savedStats) {
         setWeeklyStats(JSON.parse(savedStats));
     } else {
-        // Initialize empty stats for new users
         const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
         const emptyStats = days.map(d => ({ day: d, sedentaryHours: 0, activeBreaks: 0 }));
         setWeeklyStats(emptyStats);
     }
 
-  }, [currentUser]); // Trigger whenever user logs in/out
+    // D. Load User Gamification Stats
+    const savedUserStats = localStorage.getItem(getUserKey(USER_STATS_KEY));
+    if (savedUserStats) {
+        setUserStats(JSON.parse(savedUserStats));
+    } else {
+        setUserStats({ totalWorkouts: 0, currentStreak: 0, lastWorkoutDate: null });
+    }
+
+    // Set Random Quote for the session/day
+    const quoteIndex = new Date().getDate() % INSPIRATIONAL_QUOTES.length;
+    setDailyQuote(INSPIRATIONAL_QUOTES[quoteIndex] || INSPIRATIONAL_QUOTES[0]);
+
+  }, [currentUser]); 
 
   // Persist Settings
   useEffect(() => {
@@ -119,22 +130,16 @@ const App: React.FC = () => {
   const lang = userSettings.language;
   const t = TRANSLATIONS[lang];
 
-  // UI State for Settings
+  // UI State
   const [showDNDManager, setShowDNDManager] = useState(false);
-  
-  // UI State for Workout Player
   const [activeExercise, setActiveExercise] = useState<Exercise | null>(null);
-
-  // Profile Edit State
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState('');
   const [editAvatar, setEditAvatar] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-
   const [isDNDActive, setIsDNDActive] = useState(false);
   const [activeDNDLabel, setActiveDNDLabel] = useState<string>('');
   const [alertLevel, setAlertLevel] = useState(0); 
-  
   const threshold = userSettings.sedentaryThreshold * 60; 
 
   // Initialize Alert Level
@@ -147,7 +152,6 @@ const App: React.FC = () => {
   // Workout State
   const [exercises, setExercises] = useState<Exercise[]>(getMockExercises(lang));
   const [isGenerating, setIsGenerating] = useState(false);
-  // FIX: Removed unused setSelectedFocus
   const [selectedFocus] = useState<string>('neck');
 
   useEffect(() => {
@@ -185,10 +189,6 @@ const App: React.FC = () => {
         }
       }
 
-      if (!dndActive && userSettings.doNotDisturb.calendarSync) {
-         // Simulation
-      }
-
       if (!dndActive && userSettings.doNotDisturb.smartDetection) {
          if (currentMinutes >= 13 * 60 && currentMinutes < 13 * 60 + 30) {
              dndActive = true;
@@ -205,21 +205,18 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [userSettings.doNotDisturb, lang]);
 
-  // Timer Logic with Persistence
+  // Timer Logic
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
-    
     if (isMonitoring && !isDNDActive && !activeExercise && currentUser) {
       interval = setInterval(() => {
         setSedentaryTime((prev: number) => {
           const newValue = prev + 1;
-          
           localStorage.setItem(getUserKey(TIMER_KEY), JSON.stringify({
             time: newValue,
             monitoring: true,
             lastActive: Date.now()
           }));
-
           return newValue;
         });
       }, 1000);
@@ -230,9 +227,54 @@ const App: React.FC = () => {
         lastActive: Date.now()
       }));
     }
-    
     return () => clearInterval(interval);
   }, [isMonitoring, isDNDActive, activeExercise, sedentaryTime, currentUser]);
+
+  const handleWorkoutComplete = () => {
+      if (!currentUser) return;
+
+      const todayStr = new Date().toISOString().split('T')[0];
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+      // Update User Stats
+      setUserStats(prev => {
+          let newStreak = prev.currentStreak;
+          // Logic: If last workout was yesterday, increment. If older, reset to 1. If today, keep same.
+          if (prev.lastWorkoutDate === yesterdayStr) {
+              newStreak += 1;
+          } else if (prev.lastWorkoutDate !== todayStr) {
+              newStreak = 1; 
+          }
+
+          const newStats = {
+              totalWorkouts: prev.totalWorkouts + 1,
+              currentStreak: newStreak,
+              lastWorkoutDate: todayStr
+          };
+          
+          localStorage.setItem(getUserKey(USER_STATS_KEY), JSON.stringify(newStats));
+          return newStats;
+      });
+
+      // Update Weekly Stats (Graph)
+      setWeeklyStats(prev => {
+          const todayIndex = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
+          const newStats = [...prev];
+          if (newStats[todayIndex]) {
+              newStats[todayIndex] = {
+                  ...newStats[todayIndex],
+                  activeBreaks: newStats[todayIndex].activeBreaks + 1
+              };
+          }
+          localStorage.setItem(getUserKey(STATS_KEY), JSON.stringify(newStats));
+          return newStats;
+      });
+
+      // Reset Sedentary Timer after workout
+      resetTimer();
+  };
 
   const resetTimer = () => {
     setSedentaryTime(0);
@@ -243,19 +285,6 @@ const App: React.FC = () => {
             monitoring: isMonitoring,
             lastActive: Date.now()
         }));
-        // Update mock stats for today (simple increment)
-        const today = new Date().getDay(); // 0 is Sun
-        const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const dayLabel = dayLabels[today];
-        
-        const newStats = weeklyStats.map(s => {
-            if (s.day === dayLabel) {
-                return { ...s, activeBreaks: s.activeBreaks + 1 };
-            }
-            return s;
-        });
-        setWeeklyStats(newStats);
-        localStorage.setItem(getUserKey(STATS_KEY), JSON.stringify(newStats));
     }
   };
 
@@ -284,13 +313,13 @@ const App: React.FC = () => {
     setCurrentView(AppView.HOME);
     setSedentaryTime(0);
     setWeeklyStats([]);
+    setUserStats({ totalWorkouts: 0, currentStreak: 0, lastWorkoutDate: null });
   };
 
   const handleUpdateProfile = async () => {
       if (!currentUser) return;
       setIsSavingProfile(true);
       try {
-          // Call API
           const response = await fetch('/api/update-profile', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -303,7 +332,6 @@ const App: React.FC = () => {
           
           if (!response.ok) throw new Error('Failed to update');
           
-          // Update local state
           const updatedUser = { ...currentUser, name: editName, avatar: editAvatar };
           setCurrentUser(updatedUser);
           localStorage.setItem(SESSION_KEY, JSON.stringify(updatedUser));
@@ -411,7 +439,6 @@ const App: React.FC = () => {
                 <p className="text-xs text-indigo-400 mt-2">{t.home.autoPaused}</p>
             </div>
         ) : (
-            /* Action Buttons */
             <div className="flex space-x-4 w-full max-w-xs mb-8">
                 <button 
                     onClick={() => setIsMonitoring(!isMonitoring)}
@@ -519,7 +546,10 @@ const App: React.FC = () => {
   );
 
   const renderProfile = () => {
-    const badges = getBadges(lang);
+    // Dynamic Badges based on stats
+    const badges = getBadges(lang, userStats);
+    const unlockedBadgesCount = badges.filter(b => b.unlocked).length;
+
     return (
     <div className="px-4 py-8 min-h-screen bg-gray-50 pb-24">
         {/* Profile Header */}
@@ -545,8 +575,12 @@ const App: React.FC = () => {
             </div>
             <div className="flex-1 min-w-0">
                 <h2 className="text-xl font-bold text-gray-900 truncate">{currentUser?.name || 'User'}</h2>
-                <p className="text-sm text-gray-500 truncate">{currentUser?.email}</p>
-                <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded mt-1 inline-block font-semibold">{t.profile.plan}</span>
+                <div className="flex items-start mt-1 space-x-1">
+                    <QuoteIcon size={12} className="text-indigo-400 mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-indigo-500 font-medium leading-tight">
+                        {lang === 'zh' ? dailyQuote.zh : dailyQuote.en}
+                    </p>
+                </div>
             </div>
         </div>
 
@@ -603,15 +637,15 @@ const App: React.FC = () => {
 
         <div className="flex justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6">
             <div className="text-center w-1/3 border-r border-gray-100">
-                <p className="font-bold text-lg">12</p>
+                <p className="font-bold text-lg text-indigo-600">{userStats.currentStreak}</p>
                 <p className="text-[10px] text-gray-400 uppercase">{t.profile.streak}</p>
             </div>
             <div className="text-center w-1/3 border-r border-gray-100">
-                <p className="font-bold text-lg">45</p>
+                <p className="font-bold text-lg text-green-600">{userStats.totalWorkouts}</p>
                 <p className="text-[10px] text-gray-400 uppercase">{t.profile.workouts}</p>
             </div>
             <div className="text-center w-1/3">
-                <p className="font-bold text-lg">3</p>
+                <p className="font-bold text-lg text-yellow-500">{unlockedBadgesCount}</p>
                 <p className="text-[10px] text-gray-400 uppercase">{t.profile.badges}</p>
             </div>
         </div>
@@ -622,10 +656,10 @@ const App: React.FC = () => {
             </h3>
             <div className="grid grid-cols-2 gap-3">
                 {badges.map(badge => (
-                    <div key={badge.id} className={`p-3 rounded-lg border flex items-center space-x-3 ${badge.unlocked ? 'bg-white border-gray-200' : 'bg-gray-100 border-gray-200 opacity-60'}`}>
+                    <div key={badge.id} className={`p-3 rounded-lg border flex items-center space-x-3 transition-colors ${badge.unlocked ? 'bg-white border-green-200 shadow-sm' : 'bg-gray-50 border-gray-200 opacity-60'}`}>
                         <div className="text-2xl">{badge.icon}</div>
                         <div>
-                            <p className="font-bold text-sm text-gray-800">{badge.name}</p>
+                            <p className={`font-bold text-sm ${badge.unlocked ? 'text-gray-800' : 'text-gray-500'}`}>{badge.name}</p>
                             <p className="text-[10px] text-gray-500 leading-tight">{badge.description}</p>
                         </div>
                     </div>
@@ -690,6 +724,7 @@ const App: React.FC = () => {
         <WorkoutPlayer 
             exercise={activeExercise}
             onClose={() => setActiveExercise(null)}
+            onComplete={handleWorkoutComplete}
             lang={lang}
         />
       ) : showDNDManager ? (

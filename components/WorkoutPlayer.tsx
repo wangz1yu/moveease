@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { X, Play, Pause, CheckCircle, RotateCcw } from 'lucide-react';
 import { Exercise, Language } from '../types';
@@ -6,10 +7,11 @@ import { TRANSLATIONS } from '../constants';
 interface WorkoutPlayerProps {
   exercise: Exercise;
   onClose: () => void;
+  onComplete?: () => void;
   lang: Language;
 }
 
-const WorkoutPlayer: React.FC<WorkoutPlayerProps> = ({ exercise, onClose, lang }) => {
+const WorkoutPlayer: React.FC<WorkoutPlayerProps> = ({ exercise, onClose, onComplete, lang }) => {
   const t = TRANSLATIONS[lang].player;
   
   const [timeLeft, setTimeLeft] = useState(exercise.duration);
@@ -37,6 +39,11 @@ const WorkoutPlayer: React.FC<WorkoutPlayerProps> = ({ exercise, onClose, lang }
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const handleDone = () => {
+      if (onComplete) onComplete();
+      onClose();
   };
 
   const progress = ((exercise.duration - timeLeft) / exercise.duration) * 100;
@@ -117,7 +124,7 @@ const WorkoutPlayer: React.FC<WorkoutPlayerProps> = ({ exercise, onClose, lang }
       <div className="p-8 pb-12 bg-gradient-to-t from-black/80 to-transparent">
         {isCompleted ? (
              <button 
-                onClick={onClose}
+                onClick={handleDone}
                 className="w-full py-4 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-green-900/50 transition-all active:scale-[0.98]"
             >
                 {t.done}

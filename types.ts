@@ -23,6 +23,17 @@ export interface DailyStat {
   activeBreaks: number;
 }
 
+export interface UserStats {
+  totalWorkouts: number;
+  currentStreak: number;
+  lastWorkoutDate: string | null; // "YYYY-MM-DD"
+}
+
+export interface Quote {
+  en: string;
+  zh: string;
+}
+
 export interface DNDSchedule {
   id: string;
   label: string; // e.g., "Lunch Break"
