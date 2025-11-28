@@ -9,7 +9,17 @@ const app = express();
 const PORT = 3000;
 
 // 1. 中间件配置
-app.use(cors()); // 允许跨域
+app.use(cors({
+    origin: [
+        'http://localhost:5173', 
+        'http://localhost:4173', 
+        'http://sitclock.com', 
+        'https://sitclock.com',
+        'http://www.sitclock.com', 
+        'https://www.sitclock.com'
+    ],
+    credentials: true
+})); // 允许跨域
 app.use(bodyParser.json());
 
 // [新增] 请求日志中间件：帮您查看请求是否到达了后端
@@ -24,7 +34,7 @@ const db = mysql.createPool({
   host: '127.0.0.1',          // 内部回环地址
   user: 'root',               // 数据库账号
   password: 'My8Uilbe@0VsN',  // 数据库密码
-  database: 'moveease_db',    // 数据库名
+  database: 'moveease_db',    // 数据库名 (Keep DB name to preserve data)
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
@@ -78,7 +88,7 @@ db.getConnection((err, connection) => {
 
 // [新增] 根路由检查
 app.get('/', (req, res) => {
-  res.send('✅ MoveEase Backend is running! v1.0');
+  res.send('✅ SitClock Backend is running! v1.0');
 });
 
 // [POST] 注册接口
@@ -193,7 +203,7 @@ app.post('/api/announcements', (req, res) => {
 // 5. 启动服务
 app.listen(PORT, '0.0.0.0', () => {
   console.log('------------------------------------------------');
-  console.log(`🚀 MoveEase 后端服务已启动`);
+  console.log(`🚀 SitClock 后端服务已启动`);
   console.log(`📡 监听地址: http://www.sitclock.com:${PORT}`);
   console.log('------------------------------------------------');
 });

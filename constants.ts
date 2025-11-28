@@ -12,7 +12,7 @@ export const TRANSLATIONS = {
       edit: 'Edit',
     },
     auth: {
-      welcome: 'Welcome to MoveEase',
+      welcome: 'Welcome to SitClock',
       subtitle: 'Stay active, stay healthy.',
       login: 'Log In',
       register: 'Sign Up',
@@ -120,7 +120,7 @@ export const TRANSLATIONS = {
       edit: '编辑',
     },
     auth: {
-      welcome: '欢迎使用动一下',
+      welcome: '欢迎使用 SitClock',
       subtitle: '拒绝久坐，健康办公。',
       login: '登录',
       register: '注册账号',

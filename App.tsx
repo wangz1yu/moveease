@@ -152,6 +152,7 @@ const App: React.FC = () => {
   // Workout State
   const [exercises, setExercises] = useState<Exercise[]>(getMockExercises(lang));
   const [isGenerating, setIsGenerating] = useState(false);
+  // Removed unused setSelectedFocus
   const [selectedFocus] = useState<string>('neck');
 
   useEffect(() => {
@@ -370,7 +371,7 @@ const App: React.FC = () => {
       <div className="flex flex-col items-center pt-8 px-6 min-h-screen bg-gray-50">
         <header className="w-full flex justify-between items-center mb-8">
             <div>
-                <h1 className="text-2xl font-bold text-gray-900">MoveEase</h1>
+                <h1 className="text-2xl font-bold text-gray-900">SitClock</h1>
                 <p className="text-sm text-gray-500">
                     {isDNDActive ? t.home.paused : t.home.tracking}
                 </p>
