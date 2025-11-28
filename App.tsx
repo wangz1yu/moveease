@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import Navigation from './components/Navigation';
 import WorkoutCard from './components/WorkoutCard';
 import WorkoutPlayer from './components/WorkoutPlayer';
 import DNDManager from './components/DNDManager';
 import Auth from './components/Auth';
-import { AppView, Exercise, UserSettings, Language, User } from './types';
+import { AppView, Exercise, UserSettings, User } from './types';
 import { TRANSLATIONS, getMockExercises, getBadges, MOCK_WEEKLY_STATS } from './constants';
 import { generateSmartWorkout } from './services/geminiService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Coffee, Calendar, Globe, LogOut } from 'lucide-react';
+import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut } from 'lucide-react';
 
 const SETTINGS_KEY = 'moveease_settings_v1';
 const TIMER_KEY = 'moveease_timer_v1';
@@ -199,7 +199,7 @@ const App: React.FC = () => {
 
     if (isMonitoring && !isDNDActive && !activeExercise) {
       interval = setInterval(() => {
-        setSedentaryTime((prev) => {
+        setSedentaryTime((prev: number) => {
           const newValue = prev + 1;
           
           // Save to localStorage every second so we have the latest time if user closes app

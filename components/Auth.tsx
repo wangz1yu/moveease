@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { User, Language } from '../types';
 import { TRANSLATIONS } from '../constants';
-import { Mail, Lock, User as UserIcon, LogIn, ChevronRight, Loader2, WifiOff, AlertTriangle } from 'lucide-react';
+import { Mail, Lock, User as UserIcon, ChevronRight, Loader2, WifiOff, AlertTriangle } from 'lucide-react';
 
 interface AuthProps {
   onLogin: (user: User) => void;

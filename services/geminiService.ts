@@ -1,3 +1,5 @@
+declare var process: any;
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { Exercise, Language } from "../types";
 
