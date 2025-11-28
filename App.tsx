@@ -147,7 +147,7 @@ const App: React.FC = () => {
   // Workout State
   const [exercises, setExercises] = useState<Exercise[]>(getMockExercises(lang));
   const [isGenerating, setIsGenerating] = useState(false);
-  const [selectedFocus, setSelectedFocus] = useState<string>('neck');
+  const [selectedFocus] = useState<string>('neck');
 
   useEffect(() => {
     setExercises(getMockExercises(lang));
