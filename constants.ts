@@ -70,6 +70,9 @@ export const TRANSLATIONS = {
       activeBreaks: 'Active Breaks',
       weeklyTrends: 'Weekly Trends',
       units: { hours: 'hrs', times: 'times' },
+      healthBudget: 'Daily Sedentary Budget',
+      remaining: 'Remaining',
+      medicalAdvice: 'Medical Goal: Limit sedentary time to 8h/day.',
     },
     profile: {
       streak: 'Day Streak',
@@ -188,6 +191,9 @@ export const TRANSLATIONS = {
       activeBreaks: '活动次数',
       weeklyTrends: '周趋势',
       units: { hours: '小时', times: '次' },
+      healthBudget: '健康久坐预算 (每日8小时)',
+      remaining: '剩余额度',
+      medicalAdvice: '医学建议：每日久坐尽量不超过8小时，每小时起来活动一次。',
     },
     profile: {
       streak: '连续达标',

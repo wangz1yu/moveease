@@ -46,9 +46,24 @@ const App: React.FC = () => {
     });
 
   // 2. Initialize Timer & Stats
-  const [sedentaryTime, setSedentaryTime] = useState(0);
+  const [sedentaryTime, setSedentaryTime] = useState(0); // Current active timer
+  const [todayAccumulatedMinutes, setTodayAccumulatedMinutes] = useState(0); // Confirmed/Saved minutes for today
   const [isMonitoring, setIsMonitoring] = useState(true);
-  const [weeklyStats, setWeeklyStats] = useState<DailyStat[]>([]);
+  
+  // Initialize with empty 7 days to avoid chart errors
+  const [weeklyStats, setWeeklyStats] = useState<DailyStat[]>(() => {
+      const today = new Date();
+      return Array.from({length: 7}, (_, i) => {
+          const d = new Date(today);
+          d.setDate(d.getDate() - (6 - i));
+          return {
+              day: DAYS[d.getDay()],
+              dateFull: d.toISOString().split('T')[0],
+              sedentaryHours: 0,
+              activeBreaks: 0
+          };
+      });
+  });
   
   // 3. User Gamification Stats
   const [userStats, setUserStats] = useState<UserStats>({
@@ -65,48 +80,8 @@ const App: React.FC = () => {
 
   // --- API SYNC FUNCTIONS ---
 
-  // Fetch stats from server
-  const fetchStats = async (userId: string) => {
-      try {
-          const res = await fetch(`/api/stats?userId=${userId}`);
-          if (res.ok) {
-              const data = await res.json();
-              
-              // 1. Set User Stats (Badges/Streak)
-              setUserStats({
-                  totalWorkouts: data.stats.total_workouts || 0,
-                  currentStreak: data.stats.current_streak || 0,
-                  lastWorkoutDate: data.stats.last_workout_date ? data.stats.last_workout_date.split('T')[0] : null
-              });
-
-              // 2. Set Weekly Stats (Chart)
-              // Transform DB activity rows into Mon-Sun format
-              const today = new Date();
-              const last7Days = Array.from({length: 7}, (_, i) => {
-                  const d = new Date(today);
-                  d.setDate(d.getDate() - (6 - i));
-                  return d.toISOString().split('T')[0]; // YYYY-MM-DD
-              });
-
-              const chartData = last7Days.map(dateStr => {
-                  const dayRecord = data.activity.find((a: any) => a.activity_date.startsWith(dateStr));
-                  const dateObj = new Date(dateStr);
-                  return {
-                      day: DAYS[dateObj.getDay()], // Sun, Mon...
-                      dateFull: dateStr,
-                      sedentaryHours: dayRecord ? Number((dayRecord.sedentary_minutes / 60).toFixed(1)) : 0,
-                      activeBreaks: dayRecord ? dayRecord.active_breaks : 0
-                  };
-              });
-              setWeeklyStats(chartData);
-          }
-      } catch (e) {
-          console.error("Failed to fetch stats", e);
-      }
-  };
-
   // Sync stats to server
-  const syncStats = async (stats: UserStats, todaySedentarySeconds: number, todayBreaks: number) => {
+  const syncStats = async (stats: UserStats, todaySedentaryMinutes: number, todayBreaks: number) => {
       if (!currentUser) return;
       try {
           await fetch('/api/stats', {
@@ -117,12 +92,74 @@ const App: React.FC = () => {
                   totalWorkouts: stats.totalWorkouts,
                   currentStreak: stats.currentStreak,
                   lastWorkoutDate: stats.lastWorkoutDate,
-                  todaySedentaryMinutes: Math.floor(todaySedentarySeconds / 60),
+                  todaySedentaryMinutes: todaySedentaryMinutes,
                   todayBreaks: todayBreaks
               })
           });
       } catch (e) {
           console.error("Sync failed", e);
+      }
+  };
+
+  // Fetch stats from server (With Migration Logic)
+  const fetchStats = async (userId: string) => {
+      try {
+          const res = await fetch(`/api/stats?userId=${userId}`);
+          if (res.ok) {
+              const data = await res.json();
+              
+              // === 关键修复：数据迁移逻辑 ===
+              if ((!data.stats || data.stats.total_workouts === 0) && userStats.totalWorkouts > 0) {
+                   console.log("Migrating legacy stats to DB...");
+                   // 使用当前本地数据立即同步一次
+                   const todayIndex = weeklyStats.length - 1;
+                   const todayMinutes = (weeklyStats[todayIndex]?.sedentaryHours || 0) * 60;
+                   const todayBreaks = weeklyStats[todayIndex]?.activeBreaks || 0;
+                   await syncStats(userStats, todayMinutes, todayBreaks);
+                   return; // 结束，保留本地数据作为最新数据
+              }
+              // ===========================
+
+              // 1. Set User Stats (Badges/Streak)
+              setUserStats({
+                  totalWorkouts: data.stats.total_workouts || 0,
+                  currentStreak: data.stats.current_streak || 0,
+                  lastWorkoutDate: data.stats.last_workout_date ? data.stats.last_workout_date.split('T')[0] : null
+              });
+
+              // 2. Set Weekly Stats (Chart)
+              const today = new Date();
+              const last7Days = Array.from({length: 7}, (_, i) => {
+                  const d = new Date(today);
+                  d.setDate(d.getDate() - (6 - i));
+                  return d.toISOString().split('T')[0]; // YYYY-MM-DD
+              });
+
+              // 3. Set Today Accumulated
+              // IMPORTANT: The server returns dates in user's timezone if configured correctly.
+              // We'll trust the date string matching.
+              const todayStr = today.toISOString().split('T')[0];
+              const todayRecord = data.activity.find((a: any) => a.activity_date.startsWith(todayStr));
+              if (todayRecord) {
+                  setTodayAccumulatedMinutes(todayRecord.sedentary_minutes);
+              } else {
+                  setTodayAccumulatedMinutes(0);
+              }
+
+              const chartData = last7Days.map(dateStr => {
+                  const dayRecord = data.activity.find((a: any) => a.activity_date.startsWith(dateStr));
+                  const dateObj = new Date(dateStr);
+                  return {
+                      day: DAYS[dateObj.getDay()], 
+                      dateFull: dateStr,
+                      sedentaryHours: dayRecord ? Number((dayRecord.sedentary_minutes / 60).toFixed(1)) : 0,
+                      activeBreaks: dayRecord ? dayRecord.active_breaks : 0
+                  };
+              });
+              setWeeklyStats(chartData);
+          }
+      } catch (e) {
+          console.error("Failed to fetch stats", e);
       }
   };
 
@@ -138,7 +175,7 @@ const App: React.FC = () => {
         setUserSettings(JSON.parse(savedSettings));
     }
 
-    // B. Load Timer (Bug 4 Fix: No elapsed time calculation)
+    // B. Load Timer
     const savedTimer = localStorage.getItem(getUserKey(TIMER_KEY));
     if (savedTimer) {
         const { time, monitoring } = JSON.parse(savedTimer);
@@ -266,6 +303,44 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [isMonitoring, isDNDActive, activeExercise, sedentaryTime, currentUser]);
 
+  // Combined logic to reset timer AND save data (fix disappearing bug)
+  const resetTimer = (incrementBreak = false) => {
+    if (!currentUser) return;
+
+    // 1. Calculate new totals
+    const currentMinutes = Math.floor(sedentaryTime / 60);
+    const newAccumulatedMinutes = todayAccumulatedMinutes + currentMinutes;
+
+    // 2. Update local state immediately (so UI doesn't jump)
+    setTodayAccumulatedMinutes(newAccumulatedMinutes);
+
+    // 3. Update break count
+    const totalBreaksToday = (weeklyStats[weeklyStats.length - 1]?.activeBreaks || 0) + (incrementBreak ? 1 : 0);
+
+    // 4. Sync to DB
+    syncStats(userStats, newAccumulatedMinutes, totalBreaksToday);
+
+    // 5. Update WeeklyStats (Local cache for Chart)
+    const newWeeklyStats = [...weeklyStats];
+    const todayIndex = newWeeklyStats.length - 1;
+    if (newWeeklyStats[todayIndex]) {
+        newWeeklyStats[todayIndex].activeBreaks = totalBreaksToday;
+        // Note: Chart render logic below combines accumulated + current, 
+        // so we don't strictly need to update sedentaryHours here if we update todayAccumulatedMinutes,
+        // but let's keep it consistent.
+        newWeeklyStats[todayIndex].sedentaryHours = Number((newAccumulatedMinutes / 60).toFixed(1));
+    }
+    setWeeklyStats(newWeeklyStats);
+
+    // 6. Reset current timer
+    setSedentaryTime(0);
+    setAlertLevel(0);
+    localStorage.setItem(getUserKey(TIMER_KEY), JSON.stringify({
+        time: 0,
+        monitoring: isMonitoring
+    }));
+  };
+
   const handleWorkoutComplete = () => {
       if (!currentUser) return;
 
@@ -289,42 +364,8 @@ const App: React.FC = () => {
       };
       setUserStats(newStats);
 
-      // Update Chart locally
-      const todayIndex = 6; // Assume last item is today for simplicity in this array context
-      const newWeeklyStats = [...weeklyStats];
-      if (newWeeklyStats[todayIndex]) {
-          newWeeklyStats[todayIndex].activeBreaks += 1;
-          setWeeklyStats(newWeeklyStats);
-      }
-
-      // Reset Timer & Sync to DB
-      const prevTotalMinutes = (newWeeklyStats[todayIndex]?.sedentaryHours || 0) * 60;
-      const totalMinutesToday = Math.floor(prevTotalMinutes + (sedentaryTime / 60));
-      const totalBreaksToday = newWeeklyStats[todayIndex]?.activeBreaks || 1;
-
-      syncStats(newStats, totalMinutesToday, totalBreaksToday);
-      resetTimer();
-  };
-
-  const resetTimer = () => {
-    // Before resetting, sync the sedentary time to DB
-    if (currentUser && weeklyStats.length > 0) {
-        const todayIndex = weeklyStats.length - 1;
-        const prevTotalMinutes = (weeklyStats[todayIndex]?.sedentaryHours || 0) * 60;
-        const totalMinutesToday = Math.floor(prevTotalMinutes + (sedentaryTime / 60));
-        const totalBreaksToday = weeklyStats[todayIndex]?.activeBreaks || 0;
-        
-        syncStats(userStats, totalMinutesToday, totalBreaksToday);
-    }
-
-    setSedentaryTime(0);
-    setAlertLevel(0);
-    if (currentUser) {
-        localStorage.setItem(getUserKey(TIMER_KEY), JSON.stringify({
-            time: 0,
-            monitoring: isMonitoring
-        }));
-    }
+      // Save Data with incremented break
+      resetTimer(true);
   };
 
   const handleMoved = () => {
@@ -333,12 +374,10 @@ const App: React.FC = () => {
       const randomMsg = messages[Math.floor(Math.random() * messages.length)];
       setCelebration({ show: true, message: randomMsg });
 
-      // 2. Play Sound (Optional - simplified here as visual only)
+      // 2. Reset Timer (without incrementing break count, just accumulating time)
+      resetTimer(false);
 
-      // 3. Reset Timer
-      resetTimer();
-
-      // 4. Clear Animation after delay
+      // 3. Clear Animation after delay
       setTimeout(() => {
           setCelebration({ show: false, message: '' });
       }, 2500);
@@ -368,7 +407,9 @@ const App: React.FC = () => {
     localStorage.removeItem(SESSION_KEY);
     setCurrentView(AppView.HOME);
     setSedentaryTime(0);
+    // Reset stats locally
     setWeeklyStats([]);
+    setTodayAccumulatedMinutes(0);
     setUserStats({ totalWorkouts: 0, currentStreak: 0, lastWorkoutDate: null });
   };
 
@@ -612,14 +653,29 @@ const App: React.FC = () => {
   );
 
   const renderStats = () => {
-    // [Fix Bug 1] Merge current running time into chart data for visualization
+    // [Updated Logic] Calculate totals based on accumulated + current active session
+    const currentSessionMinutes = Math.floor(sedentaryTime / 60);
+    const totalTodayMinutes = todayAccumulatedMinutes + currentSessionMinutes;
+    const totalTodayHours = Number((totalTodayMinutes / 60).toFixed(1));
+
+    // Health Budget Logic (8 hours = 480 mins)
+    const limitMinutes = 8 * 60;
+    const remainingMinutes = Math.max(0, limitMinutes - totalTodayMinutes);
+    const remainingHours = (remainingMinutes / 60).toFixed(1);
+    const percentUsed = Math.min((totalTodayMinutes / limitMinutes) * 100, 100);
+    
+    // Determine color based on usage
+    let progressColor = 'bg-green-500';
+    if (percentUsed > 75) progressColor = 'bg-yellow-500';
+    if (percentUsed > 95) progressColor = 'bg-red-500';
+
+    // Merge for Chart
     const chartData = [...weeklyStats];
-    const todayIndex = chartData.length - 1; // Last item is today
+    const todayIndex = chartData.length - 1;
     if (chartData[todayIndex]) {
-        const currentHours = sedentaryTime / 3600;
         chartData[todayIndex] = {
             ...chartData[todayIndex],
-            sedentaryHours: Number((chartData[todayIndex].sedentaryHours + currentHours).toFixed(1))
+            sedentaryHours: totalTodayHours
         };
     }
 
@@ -627,11 +683,35 @@ const App: React.FC = () => {
     <div className="px-4 py-8 min-h-screen bg-gray-50 pb-24">
         <h2 className="text-2xl font-bold text-gray-900 mb-6">{t.stats.title}</h2>
 
+        {/* Health Budget Card */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-6">
+            <div className="flex justify-between items-center mb-3">
+                <h3 className="font-bold text-gray-800 flex items-center">
+                    <Heart className="text-red-500 mr-2" size={18} fill="currentColor"/>
+                    {t.stats.healthBudget}
+                </h3>
+                <span className="text-xs font-bold bg-gray-100 text-gray-600 px-2 py-1 rounded-lg">
+                    {t.stats.remaining}: {remainingHours} {t.stats.units.hours}
+                </span>
+            </div>
+            
+            <div className="h-4 w-full bg-gray-100 rounded-full overflow-hidden mb-3">
+                <div 
+                    className={`h-full ${progressColor} transition-all duration-1000 ease-out`}
+                    style={{ width: `${percentUsed}%` }}
+                />
+            </div>
+            
+            <p className="text-xs text-gray-400 leading-relaxed">
+                {t.stats.medicalAdvice}
+            </p>
+        </div>
+
         <div className="grid grid-cols-2 gap-4 mb-8">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                 <p className="text-gray-500 text-xs uppercase font-bold mb-1">{t.stats.todaySedentary}</p>
                 <p className="text-2xl font-bold text-indigo-600">
-                    {(sedentaryTime / 3600).toFixed(1)} <span className="text-sm text-gray-400 font-normal">{t.stats.units.hours}</span>
+                    {totalTodayHours} <span className="text-sm text-gray-400 font-normal">{t.stats.units.hours}</span>
                 </p>
             </div>
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
