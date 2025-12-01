@@ -280,65 +280,58 @@ export const getBadges = (lang: Language, stats?: UserStats): Badge[] => {
         name: isZh ? '初次启程' : 'First Step', 
         icon: '🚀', 
         unlocked: total >= 1, 
-        description: isZh ? '完成你的第一次微健身。' : 'Complete your first micro-workout.' 
+        description: isZh ? '完成你的第一次微健身。' : 'Complete your 1st micro-workout.' 
     },
     { 
         id: '2', 
         name: isZh ? '3天连胜' : '3-Day Streak', 
         icon: '🔥', 
         unlocked: streak >= 3, 
-        description: isZh ? '连续3天达成活动目标。' : 'Hit activity goals for 3 days.' 
+        description: isZh ? '连续3天至少完成1次课程。' : 'Complete at least 1 workout for 3 days in a row.' 
     },
     { 
         id: '3', 
         name: isZh ? '健身达人' : 'Fitness Pro', 
         icon: '💪', 
         unlocked: total >= 20, 
-        description: isZh ? '累计完成20次课程。' : 'Complete 20 workouts total.' 
+        description: isZh ? '累计完成20次课程。' : 'Accumulate 20 completed workouts.' 
     },
     { 
         id: '4', 
         name: isZh ? '颈椎救星' : 'Neck Saver', 
         icon: '🦒', 
         unlocked: total >= 50, 
-        description: isZh ? '完成50次练习。' : 'Completed 50 exercises.' 
+        description: isZh ? '累计完成50次课程。' : 'Accumulate 50 completed workouts.' 
     },
     { 
         id: '5', 
         name: isZh ? '夜猫子' : 'Night Owl', 
         icon: '🦉', 
-        unlocked: false, // Requires time tracking logic not yet implemented
-        description: isZh ? '在晚上10点后完成一次放松。' : 'Completed a relaxation session after 10 PM.' 
+        unlocked: false, 
+        description: isZh ? '在晚上10点后完成一次放松（开发中）。' : 'Complete a session after 10 PM (In Dev).' 
     },
     { 
         id: '6', 
         name: isZh ? '周末战士' : 'Weekend Warrior', 
         icon: '⚔️', 
-        unlocked: false, // Requires day tracking
-        description: isZh ? '在周六和周日都完成了目标。' : 'Met goals on both Saturday and Sunday.' 
+        unlocked: false, 
+        description: isZh ? '在周六和周日都完成了目标（开发中）。' : 'Hit goals on Sat & Sun (In Dev).' 
     },
     { 
         id: '7', 
         name: isZh ? '专注大师' : 'Focus Master', 
         icon: '🧘', 
         unlocked: false, 
-        description: isZh ? '累计专注于工作/学习超过50小时。' : 'Accumulated over 50 hours of focus time.' 
+        description: isZh ? '累计记录久坐时间超过50小时（开发中）。' : 'Log 50+ hours of sedentary time (In Dev).' 
     },
     { 
         id: '8', 
         name: isZh ? '7天连胜' : '7-Day Streak', 
         icon: '🏆', 
         unlocked: streak >= 7, 
-        description: isZh ? '连续7天达成活动目标。' : 'Hit activity goals for 7 days.' 
+        description: isZh ? '连续7天至少完成1次课程。' : 'Complete at least 1 workout for 7 days in a row.' 
     },
   ];
 };
 
-export const MOCK_ANNOUNCEMENTS: Announcement[] = [
-  {
-    id: 'demo-1',
-    title: 'Demo Announcement',
-    created_at: new Date().toISOString(),
-    content: 'If you see this, the API connection might be down. This is local fallback data.'
-  }
-];
+export const MOCK_ANNOUNCEMENTS: Announcement[] = [];

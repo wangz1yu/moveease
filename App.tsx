@@ -15,8 +15,9 @@ import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Glo
 const SETTINGS_KEY = 'moveease_settings_v1';
 const TIMER_KEY = 'moveease_timer_v1';
 const SESSION_KEY = 'moveease_user_session';
-const STATS_KEY = 'moveease_stats_v1';
-const USER_STATS_KEY = 'moveease_user_profile_stats';
+
+// Helper for days
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const App: React.FC = () => {
   // --- Auth State ---
@@ -32,7 +33,6 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.HOME);
   const [showAnnouncements, setShowAnnouncements] = useState(false);
 
-  // Helper to get user-specific storage key
   const getUserKey = (key: string) => {
     return currentUser ? `${key}_${currentUser.id}` : key;
   };
@@ -60,7 +60,72 @@ const App: React.FC = () => {
   // 4. Daily Quote
   const [dailyQuote, setDailyQuote] = useState<Quote>(INSPIRATIONAL_QUOTES[0]);
 
-  // Load User Data when currentUser changes
+  // --- API SYNC FUNCTIONS ---
+
+  // Fetch stats from server
+  const fetchStats = async (userId: string) => {
+      try {
+          const res = await fetch(`/api/stats?userId=${userId}`);
+          if (res.ok) {
+              const data = await res.json();
+              
+              // 1. Set User Stats (Badges/Streak)
+              setUserStats({
+                  totalWorkouts: data.stats.total_workouts || 0,
+                  currentStreak: data.stats.current_streak || 0,
+                  lastWorkoutDate: data.stats.last_workout_date ? data.stats.last_workout_date.split('T')[0] : null
+              });
+
+              // 2. Set Weekly Stats (Chart)
+              // Transform DB activity rows into Mon-Sun format
+              const today = new Date();
+              const last7Days = Array.from({length: 7}, (_, i) => {
+                  const d = new Date(today);
+                  d.setDate(d.getDate() - (6 - i));
+                  return d.toISOString().split('T')[0]; // YYYY-MM-DD
+              });
+
+              const chartData = last7Days.map(dateStr => {
+                  const dayRecord = data.activity.find((a: any) => a.activity_date.startsWith(dateStr));
+                  const dateObj = new Date(dateStr);
+                  return {
+                      day: DAYS[dateObj.getDay()], // Sun, Mon...
+                      dateFull: dateStr,
+                      sedentaryHours: dayRecord ? Number((dayRecord.sedentary_minutes / 60).toFixed(1)) : 0,
+                      activeBreaks: dayRecord ? dayRecord.active_breaks : 0
+                  };
+              });
+              setWeeklyStats(chartData);
+          }
+      } catch (e) {
+          console.error("Failed to fetch stats", e);
+      }
+  };
+
+  // Sync stats to server
+  const syncStats = async (stats: UserStats, todaySedentarySeconds: number, todayBreaks: number) => {
+      if (!currentUser) return;
+      try {
+          await fetch('/api/stats', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  userId: currentUser.id,
+                  totalWorkouts: stats.totalWorkouts,
+                  currentStreak: stats.currentStreak,
+                  lastWorkoutDate: stats.lastWorkoutDate,
+                  todaySedentaryMinutes: Math.floor(todaySedentarySeconds / 60),
+                  todayBreaks: todayBreaks
+              })
+          });
+      } catch (e) {
+          console.error("Sync failed", e);
+      }
+  };
+
+  // --- EFFECTS ---
+
+  // Load User Data
   useEffect(() => {
     if (!currentUser) return;
 
@@ -68,53 +133,23 @@ const App: React.FC = () => {
     const savedSettings = localStorage.getItem(getUserKey(SETTINGS_KEY));
     if (savedSettings) {
         setUserSettings(JSON.parse(savedSettings));
-    } else {
-        setUserSettings({
-            sedentaryThreshold: 45,
-            notificationsEnabled: true,
-            doNotDisturb: { schedules: [], calendarSync: false, smartDetection: true },
-            language: 'zh'
-        });
     }
 
-    // B. Load Timer
+    // B. Load Timer (Bug 4 Fix: No elapsed time calculation)
     const savedTimer = localStorage.getItem(getUserKey(TIMER_KEY));
     if (savedTimer) {
-        const { time, lastActive, monitoring } = JSON.parse(savedTimer);
-        let newTime = time;
-        if (monitoring && lastActive) {
-            const now = Date.now();
-            const elapsed = Math.floor((now - lastActive) / 1000);
-            if (elapsed > 0 && elapsed < 86400) {
-                newTime += elapsed;
-            }
-        }
-        setSedentaryTime(newTime);
+        const { time, monitoring } = JSON.parse(savedTimer);
+        setSedentaryTime(time);
         setIsMonitoring(monitoring);
     } else {
         setSedentaryTime(0);
         setIsMonitoring(true);
     }
 
-    // C. Load Weekly Stats
-    const savedStats = localStorage.getItem(getUserKey(STATS_KEY));
-    if (savedStats) {
-        setWeeklyStats(JSON.parse(savedStats));
-    } else {
-        const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        const emptyStats = days.map(d => ({ day: d, sedentaryHours: 0, activeBreaks: 0 }));
-        setWeeklyStats(emptyStats);
-    }
+    // C. Fetch Remote Stats
+    fetchStats(currentUser.id);
 
-    // D. Load User Gamification Stats
-    const savedUserStats = localStorage.getItem(getUserKey(USER_STATS_KEY));
-    if (savedUserStats) {
-        setUserStats(JSON.parse(savedUserStats));
-    } else {
-        setUserStats({ totalWorkouts: 0, currentStreak: 0, lastWorkoutDate: null });
-    }
-
-    // Set Random Quote for the session/day
+    // Set Random Quote
     const quoteIndex = new Date().getDate() % INSPIRATIONAL_QUOTES.length;
     setDailyQuote(INSPIRATIONAL_QUOTES[quoteIndex] || INSPIRATIONAL_QUOTES[0]);
 
@@ -152,8 +187,6 @@ const App: React.FC = () => {
   // Workout State
   const [exercises, setExercises] = useState<Exercise[]>(getMockExercises(lang));
   const [isGenerating, setIsGenerating] = useState(false);
-  // Removed unused setSelectedFocus
-  const [selectedFocus] = useState<string>('neck');
 
   useEffect(() => {
     setExercises(getMockExercises(lang));
@@ -216,7 +249,7 @@ const App: React.FC = () => {
           localStorage.setItem(getUserKey(TIMER_KEY), JSON.stringify({
             time: newValue,
             monitoring: true,
-            lastActive: Date.now()
+            // lastActive Removed to fix Bug 4 (no catch up)
           }));
           return newValue;
         });
@@ -224,8 +257,7 @@ const App: React.FC = () => {
     } else if (currentUser) {
       localStorage.setItem(getUserKey(TIMER_KEY), JSON.stringify({
         time: sedentaryTime,
-        monitoring: isMonitoring,
-        lastActive: Date.now()
+        monitoring: isMonitoring
       }));
     }
     return () => clearInterval(interval);
@@ -239,59 +271,70 @@ const App: React.FC = () => {
       yesterday.setDate(yesterday.getDate() - 1);
       const yesterdayStr = yesterday.toISOString().split('T')[0];
 
-      // Update User Stats
-      setUserStats(prev => {
-          let newStreak = prev.currentStreak;
-          // Logic: If last workout was yesterday, increment. If older, reset to 1. If today, keep same.
-          if (prev.lastWorkoutDate === yesterdayStr) {
-              newStreak += 1;
-          } else if (prev.lastWorkoutDate !== todayStr) {
-              newStreak = 1; 
-          }
+      let newStreak = userStats.currentStreak;
+      // Streak logic
+      if (userStats.lastWorkoutDate === yesterdayStr) {
+          newStreak += 1;
+      } else if (userStats.lastWorkoutDate !== todayStr) {
+          newStreak = 1; 
+      }
 
-          const newStats = {
-              totalWorkouts: prev.totalWorkouts + 1,
-              currentStreak: newStreak,
-              lastWorkoutDate: todayStr
-          };
-          
-          localStorage.setItem(getUserKey(USER_STATS_KEY), JSON.stringify(newStats));
-          return newStats;
-      });
+      const newStats = {
+          totalWorkouts: userStats.totalWorkouts + 1,
+          currentStreak: newStreak,
+          lastWorkoutDate: todayStr
+      };
+      setUserStats(newStats);
 
-      // Update Weekly Stats (Graph)
-      setWeeklyStats(prev => {
-          const todayIndex = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
-          const newStats = [...prev];
-          if (newStats[todayIndex]) {
-              newStats[todayIndex] = {
-                  ...newStats[todayIndex],
-                  activeBreaks: newStats[todayIndex].activeBreaks + 1
-              };
-          }
-          localStorage.setItem(getUserKey(STATS_KEY), JSON.stringify(newStats));
-          return newStats;
-      });
+      // Update Chart locally
+      const todayIndex = 6; // Assume last item is today for simplicity in this array context
+      const newWeeklyStats = [...weeklyStats];
+      if (newWeeklyStats[todayIndex]) {
+          newWeeklyStats[todayIndex].activeBreaks += 1;
+          setWeeklyStats(newWeeklyStats);
+      }
 
-      // Reset Sedentary Timer after workout
+      // Reset Timer & Sync to DB
+      const currentSedentaryMinutes = Math.floor(sedentaryTime / 60); // Bank current minutes before reset
+      // Note: We need to add the *current session* to the DB total. 
+      // Simplified: We assume chart data has previous total, we add current session.
+      // But actually, chart data comes from DB. 
+      // For accurate sync, we should pass (Existing DB Sedentary + Current Session)
+      // Since we don't track total cumulative day minutes in React state easily without another variable,
+      // We will assume `weeklyStats[today].sedentaryHours` * 60 + `sedentaryTime` / 60 is the total.
+      
+      const prevTotalMinutes = (newWeeklyStats[todayIndex]?.sedentaryHours || 0) * 60;
+      const totalMinutesToday = Math.floor(prevTotalMinutes + (sedentaryTime / 60));
+      const totalBreaksToday = newWeeklyStats[todayIndex]?.activeBreaks || 1;
+
+      syncStats(newStats, totalMinutesToday, totalBreaksToday);
       resetTimer();
   };
 
   const resetTimer = () => {
+    // Before resetting, sync the sedentary time to DB
+    if (currentUser && weeklyStats.length > 0) {
+        const todayIndex = weeklyStats.length - 1;
+        const prevTotalMinutes = (weeklyStats[todayIndex]?.sedentaryHours || 0) * 60;
+        const totalMinutesToday = Math.floor(prevTotalMinutes + (sedentaryTime / 60));
+        const totalBreaksToday = weeklyStats[todayIndex]?.activeBreaks || 0;
+        
+        syncStats(userStats, totalMinutesToday, totalBreaksToday);
+    }
+
     setSedentaryTime(0);
     setAlertLevel(0);
     if (currentUser) {
         localStorage.setItem(getUserKey(TIMER_KEY), JSON.stringify({
             time: 0,
-            monitoring: isMonitoring,
-            lastActive: Date.now()
+            monitoring: isMonitoring
         }));
     }
   };
 
   const handleGenerateWorkout = async () => {
     setIsGenerating(true);
-    const newPlan = await generateSmartWorkout(selectedFocus, lang);
+    const newPlan = await generateSmartWorkout('neck', lang);
     setExercises(newPlan);
     setIsGenerating(false);
   };
@@ -509,7 +552,19 @@ const App: React.FC = () => {
     </div>
   );
 
-  const renderStats = () => (
+  const renderStats = () => {
+    // [Fix Bug 1] Merge current running time into chart data for visualization
+    const chartData = [...weeklyStats];
+    const todayIndex = chartData.length - 1; // Last item is today
+    if (chartData[todayIndex]) {
+        const currentHours = sedentaryTime / 3600;
+        chartData[todayIndex] = {
+            ...chartData[todayIndex],
+            sedentaryHours: Number((chartData[todayIndex].sedentaryHours + currentHours).toFixed(1))
+        };
+    }
+
+    return (
     <div className="px-4 py-8 min-h-screen bg-gray-50 pb-24">
         <h2 className="text-2xl font-bold text-gray-900 mb-6">{t.stats.title}</h2>
 
@@ -523,8 +578,8 @@ const App: React.FC = () => {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                 <p className="text-gray-500 text-xs uppercase font-bold mb-1">{t.stats.activeBreaks}</p>
                 <p className="text-2xl font-bold text-green-500">
-                     {/* Show breaks for today based on current day index */}
-                     {weeklyStats[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1]?.activeBreaks || 0}
+                     {/* Show breaks for today based on chart data */}
+                     {weeklyStats[weeklyStats.length - 1]?.activeBreaks || 0}
                      <span className="text-sm text-gray-400 font-normal">{t.stats.units.times}</span>
                 </p>
             </div>
@@ -533,7 +588,7 @@ const App: React.FC = () => {
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-8 h-80">
             <h3 className="font-bold text-gray-700 mb-4 text-sm">{t.stats.weeklyTrends}</h3>
             <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={weeklyStats}>
+                <BarChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                     <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#9CA3AF'}} dy={10} />
                     <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#9CA3AF'}} />
@@ -544,7 +599,8 @@ const App: React.FC = () => {
             </ResponsiveContainer>
         </div>
     </div>
-  );
+    );
+  };
 
   const renderProfile = () => {
     // Dynamic Badges based on stats
