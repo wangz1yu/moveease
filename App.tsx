@@ -10,7 +10,7 @@ import { AppView, Exercise, UserSettings, User, DailyStat, UserStats, Quote } fr
 import { TRANSLATIONS, getMockExercises, getBadges, INSPIRATIONAL_QUOTES } from './constants';
 import { generateSmartWorkout } from './services/geminiService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut, Bell, Edit2, Camera, Loader2, Quote as QuoteIcon } from 'lucide-react';
+import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut, Bell, Edit2, Camera, Loader2, Quote as QuoteIcon, Heart, Star, ThumbsUp } from 'lucide-react';
 
 const SETTINGS_KEY = 'moveease_settings_v1';
 const TIMER_KEY = 'moveease_timer_v1';
@@ -59,6 +59,9 @@ const App: React.FC = () => {
 
   // 4. Daily Quote
   const [dailyQuote, setDailyQuote] = useState<Quote>(INSPIRATIONAL_QUOTES[0]);
+
+  // 5. Celebration State
+  const [celebration, setCelebration] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
 
   // --- API SYNC FUNCTIONS ---
 
@@ -295,14 +298,6 @@ const App: React.FC = () => {
       }
 
       // Reset Timer & Sync to DB
-      const currentSedentaryMinutes = Math.floor(sedentaryTime / 60); // Bank current minutes before reset
-      // Note: We need to add the *current session* to the DB total. 
-      // Simplified: We assume chart data has previous total, we add current session.
-      // But actually, chart data comes from DB. 
-      // For accurate sync, we should pass (Existing DB Sedentary + Current Session)
-      // Since we don't track total cumulative day minutes in React state easily without another variable,
-      // We will assume `weeklyStats[today].sedentaryHours` * 60 + `sedentaryTime` / 60 is the total.
-      
       const prevTotalMinutes = (newWeeklyStats[todayIndex]?.sedentaryHours || 0) * 60;
       const totalMinutesToday = Math.floor(prevTotalMinutes + (sedentaryTime / 60));
       const totalBreaksToday = newWeeklyStats[todayIndex]?.activeBreaks || 1;
@@ -330,6 +325,23 @@ const App: React.FC = () => {
             monitoring: isMonitoring
         }));
     }
+  };
+
+  const handleMoved = () => {
+      // 1. Trigger Animation
+      const messages = TRANSLATIONS[lang].feedback || ['Great!', 'Good Job!'];
+      const randomMsg = messages[Math.floor(Math.random() * messages.length)];
+      setCelebration({ show: true, message: randomMsg });
+
+      // 2. Play Sound (Optional - simplified here as visual only)
+
+      // 3. Reset Timer
+      resetTimer();
+
+      // 4. Clear Animation after delay
+      setTimeout(() => {
+          setCelebration({ show: false, message: '' });
+      }, 2500);
   };
 
   const handleGenerateWorkout = async () => {
@@ -411,7 +423,54 @@ const App: React.FC = () => {
     const offset = circumference - (progress / 100) * circumference;
 
     return (
-      <div className="flex flex-col items-center pt-8 px-6 min-h-screen bg-gray-50">
+      <div className="flex flex-col items-center pt-8 px-6 min-h-screen bg-gray-50 relative overflow-hidden">
+        
+        {/* CSS Animation for Floating Particles */}
+        <style>{`
+          @keyframes floatUp {
+            0% { transform: translateY(0) scale(0.5); opacity: 1; }
+            100% { transform: translateY(-150px) scale(1.2); opacity: 0; }
+          }
+          .animate-float {
+             animation: floatUp 1.5s ease-out forwards;
+          }
+        `}</style>
+
+        {/* Celebration Particles */}
+        {celebration.show && (
+            <div className="absolute inset-0 z-30 pointer-events-none">
+                {/* Randomly generated particles */}
+                {Array.from({ length: 12 }).map((_, i) => {
+                    const icons = [Heart, Star, ThumbsUp, Zap];
+                    const Icon = icons[i % icons.length];
+                    const left = `${10 + Math.random() * 80}%`;
+                    const delay = `${Math.random() * 0.5}s`;
+                    const color = ['text-red-500', 'text-yellow-500', 'text-blue-500', 'text-purple-500'][i % 4];
+                    const size = 20 + Math.random() * 20;
+
+                    return (
+                        <div 
+                            key={i} 
+                            className={`absolute bottom-32 ${color} animate-float`}
+                            style={{ left, animationDelay: delay }}
+                        >
+                            <Icon size={size} fill="currentColor" className="opacity-80" />
+                        </div>
+                    );
+                })}
+                
+                {/* Central Feedback Toast */}
+                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-40 w-full max-w-xs px-4">
+                    <div className="bg-white/90 backdrop-blur-md border-2 border-indigo-100 shadow-2xl rounded-2xl p-6 text-center animate-in zoom-in-50 duration-300">
+                        <span className="text-4xl mb-2 block">✨</span>
+                        <h2 className="text-2xl font-bold text-indigo-600 bg-clip-text">
+                            {celebration.message}
+                        </h2>
+                    </div>
+                </div>
+            </div>
+        )}
+
         <header className="w-full flex justify-between items-center mb-8">
             <div>
                 <h1 className="text-2xl font-bold text-gray-900">SitClock</h1>
@@ -433,7 +492,7 @@ const App: React.FC = () => {
         </header>
 
         {/* Circular Timer */}
-        <div className="relative mb-10">
+        <div className="relative mb-10 z-10">
             <svg className="transform -rotate-90 w-72 h-72">
                 <circle
                     cx="144"
@@ -473,7 +532,7 @@ const App: React.FC = () => {
 
         {/* Status Indicator Area */}
         {isDNDActive ? (
-            <div className="w-full max-w-xs mb-8 bg-indigo-50 border border-indigo-200 rounded-xl p-5 flex flex-col items-center justify-center text-center animate-pulse">
+            <div className="w-full max-w-xs mb-8 bg-indigo-50 border border-indigo-200 rounded-xl p-5 flex flex-col items-center justify-center text-center animate-pulse z-10">
                 <div className="flex items-center text-indigo-800 font-bold mb-1">
                     <span className="text-lg mr-2">{t.home.dndActive}</span>
                 </div>
@@ -483,7 +542,7 @@ const App: React.FC = () => {
                 <p className="text-xs text-indigo-400 mt-2">{t.home.autoPaused}</p>
             </div>
         ) : (
-            <div className="flex space-x-4 w-full max-w-xs mb-8">
+            <div className="flex space-x-4 w-full max-w-xs mb-8 z-10">
                 <button 
                     onClick={() => setIsMonitoring(!isMonitoring)}
                     className={`flex-1 py-4 rounded-xl flex items-center justify-center font-bold text-lg shadow-sm transition-transform active:scale-95 ${isMonitoring ? 'bg-white text-gray-700 border border-gray-200' : 'bg-indigo-600 text-white'}`}
@@ -492,7 +551,7 @@ const App: React.FC = () => {
                     {isMonitoring ? t.home.pause : t.home.resume}
                 </button>
                 <button 
-                    onClick={resetTimer}
+                    onClick={handleMoved}
                     className="flex-1 bg-white border border-gray-200 text-indigo-600 py-4 rounded-xl flex items-center justify-center font-bold text-lg shadow-sm active:bg-indigo-50 transition-colors"
                 >
                     <RefreshCw className="mr-2" />
@@ -503,7 +562,7 @@ const App: React.FC = () => {
 
         {/* Alert Card */}
         {alertLevel > 0 && !isDNDActive && (
-             <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4 flex items-start animate-pulse">
+             <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4 flex items-start animate-pulse z-10">
                 <Zap className="text-red-500 mr-3 mt-1 flex-shrink-0" />
                 <div>
                     <h3 className="font-bold text-red-700">{t.home.timeToMove}</h3>

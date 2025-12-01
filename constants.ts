@@ -108,7 +108,17 @@ export const TRANSLATIONS = {
       postBtn: 'Post Announcement',
       titlePh: 'Title',
       contentPh: 'Content goes here...',
-    }
+    },
+    feedback: [
+        'Great job!',
+        'Keep it up!',
+        'Refreshed!',
+        'Well done!',
+        'Stay active!',
+        'You got this!',
+        'Nice break!',
+        'Energy boost!'
+    ]
   },
   zh: {
     common: {
@@ -216,7 +226,17 @@ export const TRANSLATIONS = {
       postBtn: '发布公告',
       titlePh: '标题',
       contentPh: '公告内容...',
-    }
+    },
+    feedback: [
+        '太棒了！',
+        '继续保持！',
+        '活力满满！',
+        '做得好！',
+        '状态不错！',
+        '加油！',
+        '休息一下真好！',
+        '能量回满！'
+    ]
   }
 };
 
@@ -280,14 +300,14 @@ export const getBadges = (lang: Language, stats?: UserStats): Badge[] => {
         name: isZh ? '初次启程' : 'First Step', 
         icon: '🚀', 
         unlocked: total >= 1, 
-        description: isZh ? '完成你的第一次微健身。' : 'Complete your 1st micro-workout.' 
+        description: isZh ? '累计完成1次课程。' : 'Accumulate 1 completed workout.' 
     },
     { 
         id: '2', 
         name: isZh ? '3天连胜' : '3-Day Streak', 
         icon: '🔥', 
         unlocked: streak >= 3, 
-        description: isZh ? '连续3天至少完成1次课程。' : 'Complete at least 1 workout for 3 days in a row.' 
+        description: isZh ? '连续3天每天至少完成1次课程。' : 'Complete at least 1 workout/day for 3 days in a row.' 
     },
     { 
         id: '3', 
@@ -329,7 +349,7 @@ export const getBadges = (lang: Language, stats?: UserStats): Badge[] => {
         name: isZh ? '7天连胜' : '7-Day Streak', 
         icon: '🏆', 
         unlocked: streak >= 7, 
-        description: isZh ? '连续7天至少完成1次课程。' : 'Complete at least 1 workout for 7 days in a row.' 
+        description: isZh ? '连续7天每天至少完成1次课程。' : 'Complete at least 1 workout/day for 7 days in a row.' 
     },
   ];
 };
