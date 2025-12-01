@@ -1,3 +1,4 @@
+
 declare var process: any;
 
 import { GoogleGenAI, Type } from "@google/genai";
@@ -10,12 +11,14 @@ export const generateSmartWorkout = async (focusArea: string, language: Language
     const model = "gemini-2.5-flash";
     const langInstruction = language === 'zh' ? 'in Chinese (Simplified)' : 'in English';
     
+    // Updated prompt to force strict category matching
     const prompt = `
-      Create a short "Micro-Fitness" workout plan for an office worker focusing on: ${focusArea}.
+      Create a short "Micro-Fitness" workout plan for an office worker focusing SPECIFICALLY on: ${focusArea}.
       Generate 3 simple exercises that can be done in an office chair or standing at a desk.
       Each exercise should take about 30-60 seconds.
       Provide the response exclusively in raw JSON format (no markdown code blocks).
       The content (name, description) must be written ${langInstruction}.
+      IMPORTANT: The 'category' field for each exercise MUST be exactly "${focusArea}".
     `;
 
     const response = await ai.models.generateContent({
@@ -35,7 +38,7 @@ export const generateSmartWorkout = async (focusArea: string, language: Language
               description: { type: Type.STRING },
               imageUrl: { type: Type.STRING, description: "Use a placeholder URL like https://picsum.photos/400/300?random=X" }
             },
-            required: ["id", "name", "duration", "description"]
+            required: ["id", "name", "duration", "description", "category"]
           }
         }
       }

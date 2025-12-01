@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Navigation from './components/Navigation';
 import WorkoutCard from './components/WorkoutCard';
@@ -10,7 +9,7 @@ import { AppView, Exercise, UserSettings, User, DailyStat, UserStats, Quote } fr
 import { TRANSLATIONS, getMockExercises, getBadges, INSPIRATIONAL_QUOTES } from './constants';
 import { generateSmartWorkout } from './services/geminiService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut, Bell, Edit2, Camera, Loader2, Quote as QuoteIcon, Heart, Star, ThumbsUp, Info, Upload } from 'lucide-react';
+import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut, Bell, Edit2, Camera, Loader2, Quote as QuoteIcon, Heart, Star, ThumbsUp, Info, Upload, AlarmClock, X } from 'lucide-react';
 
 const SETTINGS_KEY = 'moveease_settings_v1';
 const TIMER_KEY = 'moveease_timer_v1';
@@ -81,7 +80,11 @@ const App: React.FC = () => {
   const [sedentaryTime, setSedentaryTime] = useState(0); // Current active timer
   const [todayAccumulatedMinutes, setTodayAccumulatedMinutes] = useState(0); // Confirmed/Saved minutes for today
   const [isMonitoring, setIsMonitoring] = useState(true);
-  const [showCountdown, setShowCountdown] = useState(false); // Toggle between count up/down
+  const [showTimerMenu, setShowTimerMenu] = useState(false); // Quick Reminder Menu
+  
+  // Quick Timer / Countdown State
+  const [quickTimerTotal, setQuickTimerTotal] = useState(0);
+  const [quickTimerLeft, setQuickTimerLeft] = useState(0);
   
   // Initialize with empty 7 days to avoid chart errors
   const [weeklyStats, setWeeklyStats] = useState<DailyStat[]>(() => {
@@ -149,9 +152,7 @@ const App: React.FC = () => {
           if (res.ok) {
               const data = await res.json();
               
-              // === 数据迁移逻辑 ===
-              // 如果数据库返回空数据(0)，但本地状态有数据(>0)，说明是老用户初次使用新后端
-              // 此时需要把本地数据同步上去，而不是被0覆盖
+              // === Data Migration Logic ===
               if ((!data.stats || data.stats.total_workouts === 0) && userStats.totalWorkouts > 0) {
                    const todayIndex = weeklyStats.length - 1;
                    const todayMinutes = (weeklyStats[todayIndex]?.sedentaryHours || 0) * 60;
@@ -177,8 +178,15 @@ const App: React.FC = () => {
               });
 
               // 3. Set Today Accumulated
-              const todayStr = today.toISOString().split('T')[0];
-              const todayRecord = data.activity.find((a: any) => a.activity_date.startsWith(todayStr));
+              // IMPORTANT: Use local date format matching server logic (Asia/Shanghai approx)
+              const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
+              
+              // Check formatted date string from server or construct local match
+              const todayRecord = data.activity.find((a: any) => 
+                  (a.activity_date_str && a.activity_date_str === todayStr) || 
+                  (a.activity_date && a.activity_date.startsWith(todayStr))
+              );
+              
               if (todayRecord) {
                   setTodayAccumulatedMinutes(todayRecord.sedentary_minutes);
               } else {
@@ -186,10 +194,12 @@ const App: React.FC = () => {
               }
 
               const chartData = last7Days.map(dateStr => {
-                  const dayRecord = data.activity.find((a: any) => a.activity_date.startsWith(dateStr));
-                  const dateObj = new Date(dateStr);
+                  const dayRecord = data.activity.find((a: any) => 
+                      (a.activity_date_str && a.activity_date_str === dateStr) || 
+                      (a.activity_date && a.activity_date.startsWith(dateStr))
+                  );
                   return {
-                      day: DAYS[dateObj.getDay()], 
+                      day: DAYS[new Date(dateStr).getDay()], 
                       dateFull: dateStr,
                       sedentaryHours: dayRecord ? Number((dayRecord.sedentary_minutes / 60).toFixed(1)) : 0,
                       activeBreaks: dayRecord ? dayRecord.active_breaks : 0
@@ -323,7 +333,7 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [userSettings.doNotDisturb, lang]);
 
-  // Timer Logic
+  // Main Timer Logic (Sedentary Monitor - Count UP)
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     if (isMonitoring && !isDNDActive && !activeExercise && currentUser) {
@@ -333,7 +343,6 @@ const App: React.FC = () => {
           localStorage.setItem(getUserKey(TIMER_KEY), JSON.stringify({
             time: newValue,
             monitoring: true,
-            // lastActive Removed to fix Bug 4 (no catch up)
           }));
           return newValue;
         });
@@ -346,6 +355,27 @@ const App: React.FC = () => {
     }
     return () => clearInterval(interval);
   }, [isMonitoring, isDNDActive, activeExercise, sedentaryTime, currentUser]);
+
+  // Quick Timer Logic (Count DOWN)
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (quickTimerLeft > 0 && !isDNDActive && !activeExercise) {
+        interval = setInterval(() => {
+            setQuickTimerLeft(prev => {
+                if (prev <= 1) {
+                    // Timer Finished
+                    clearInterval(interval);
+                    setCelebration({ show: true, message: t.home.timerFinished });
+                    setTimeout(() => setCelebration({ show: false, message: '' }), 3000);
+                    setQuickTimerTotal(0); // Reset UI
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [quickTimerLeft, isDNDActive, activeExercise]);
 
   // Combined logic to reset timer AND save data (fix disappearing bug)
   const resetTimer = (incrementBreak = false) => {
@@ -427,13 +457,26 @@ const App: React.FC = () => {
   const handleGenerateWorkout = async () => {
     setIsGenerating(true);
     try {
-        // Use user selected category for AI prompt if possible, or default to neck
-        const promptCategory = selectedCategory === 'all' ? 'neck' : selectedCategory;
-        const newPlan = await generateSmartWorkout(promptCategory, lang);
-        setExercises(newPlan);
+        // [FIX] Ensure the AI uses the currently selected category, default to neck
+        const targetCategory = (selectedCategory === 'all' ? 'neck' : selectedCategory) as Exercise['category'];
+        
+        const newPlan = await generateSmartWorkout(targetCategory, lang);
+        
+        // [FIX] Force the generated exercises to match the selected category (or target) 
+        // to prevent them being hidden by the filter
+        const fixedPlan = newPlan.map(ex => ({
+            ...ex,
+            category: targetCategory // Override category from AI just in case
+        }));
+        
+        setExercises(fixedPlan);
+        
+        if (selectedCategory === 'all') {
+            setSelectedCategory(targetCategory);
+        }
+
     } catch (e) {
         console.error("Plan generation failed", e);
-        // Toast or Alert could be added here
         alert(lang === 'zh' ? '生成失败，请重试' : 'Generation failed, please try again.');
     } finally {
         setIsGenerating(false);
@@ -543,13 +586,23 @@ const App: React.FC = () => {
   // --- VIEWS ---
 
   const renderHome = () => {
+    // 1. Inner Ring (Sedentary Monitor) Logic
     const progress = Math.min((sedentaryTime / threshold) * 100, 100);
-    const radius = 100;
+    const radius = 90;
     const circumference = 2 * Math.PI * radius;
     const offset = circumference - (progress / 100) * circumference;
 
-    // Countdown value logic
-    const remainingSeconds = Math.max(0, threshold - sedentaryTime);
+    // 2. Outer Ring (Quick Timer) Logic
+    const isQuickTimerActive = quickTimerLeft > 0;
+    const quickProgress = quickTimerTotal > 0 ? ((quickTimerTotal - quickTimerLeft) / quickTimerTotal) * 100 : 0;
+    const radiusOuter = 120;
+    const circumferenceOuter = 2 * Math.PI * radiusOuter;
+    const offsetOuter = circumferenceOuter - (quickProgress / 100) * circumferenceOuter; // Fill up as time passes? Or drain? Let's drain.
+    // To drain: offsetOuter = (quickProgress/100) * circumferenceOuter ?? No.
+    // Let's make it drain: offset goes from 0 to circumference.
+    // Progress: timeLeft / Total. 100% -> 0%.
+    const drainProgress = quickTimerTotal > 0 ? (quickTimerLeft / quickTimerTotal) * 100 : 0;
+    const offsetDrain = circumferenceOuter - (drainProgress / 100) * circumferenceOuter;
 
     return (
       <div className="flex flex-col items-center pt-8 px-6 min-h-screen bg-gray-50 relative overflow-hidden">
@@ -600,7 +653,7 @@ const App: React.FC = () => {
             </div>
         )}
 
-        <header className="w-full flex justify-between items-center mb-8">
+        <header className="w-full flex justify-between items-center mb-6 relative z-20">
             <div>
                 <h1 className="text-2xl font-bold text-gray-900">SitClock</h1>
                 <p className="text-sm text-gray-500">
@@ -608,6 +661,14 @@ const App: React.FC = () => {
                 </p>
             </div>
             <div className="flex items-center space-x-3">
+                {/* Quick Timer Button */}
+                <button 
+                  onClick={() => setShowTimerMenu(!showTimerMenu)}
+                  className={`p-2 rounded-full shadow-sm border hover:text-indigo-600 active:scale-95 transition-all relative ${isQuickTimerActive ? 'bg-red-50 text-red-500 border-red-200 animate-pulse' : 'bg-white text-gray-500 border-gray-100'}`}
+                >
+                    <AlarmClock size={20} />
+                </button>
+                {/* Announcements Button */}
                 <button 
                   onClick={() => setShowAnnouncements(true)}
                   className="p-2 rounded-full bg-white text-gray-500 shadow-sm border border-gray-100 hover:text-indigo-600 active:scale-95 transition-all relative"
@@ -618,11 +679,44 @@ const App: React.FC = () => {
                     {isDNDActive ? <Moon size={20} className="fill-indigo-600" /> : <Smartphone size={20} />}
                 </div>
             </div>
+
+            {/* Quick Timer Menu */}
+            {showTimerMenu && (
+                <div className="absolute top-14 right-0 z-50 bg-white rounded-xl shadow-xl border border-gray-100 p-2 w-48 animate-in fade-in slide-in-from-top-2">
+                    <div className="flex justify-between items-center px-2 mb-2">
+                        <span className="text-xs font-bold text-gray-500 uppercase">{t.home.setReminder}</span>
+                        <button onClick={() => setShowTimerMenu(false)}><X size={14} className="text-gray-400"/></button>
+                    </div>
+                    {[30, 45, 60, 90].map(min => (
+                        <button
+                            key={min}
+                            onClick={() => {
+                                setQuickTimerTotal(min * 60);
+                                setQuickTimerLeft(min * 60);
+                                setShowTimerMenu(false);
+                            }}
+                            className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 text-gray-700"
+                        >
+                            {min} min
+                        </button>
+                    ))}
+                    <button
+                        onClick={() => {
+                            setQuickTimerTotal(0);
+                            setQuickTimerLeft(0);
+                            setShowTimerMenu(false);
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-lg text-sm font-bold text-red-500 hover:bg-red-50"
+                    >
+                        {t.common.cancel}
+                    </button>
+                </div>
+            )}
         </header>
 
-        {/* Circular Timer with Gradients */}
-        <div className="relative mb-6 z-10">
-            <svg className="transform -rotate-90 w-72 h-72">
+        {/* Dual Circular Timer */}
+        <div className="relative mb-6 z-10 w-72 h-72 flex items-center justify-center">
+            <svg className="absolute inset-0 transform -rotate-90 w-full h-full" viewBox="0 0 300 300">
                 <defs>
                     <linearGradient id="gradientGreen" x1="0%" y1="0%" x2="100%" y2="100%">
                         <stop offset="0%" stopColor="#4ade80" />
@@ -641,21 +735,49 @@ const App: React.FC = () => {
                         <stop offset="100%" stopColor="#818cf8" />
                     </linearGradient>
                 </defs>
+
+                {/* OUTER RING (Quick Timer) - Only visible if active */}
+                {isQuickTimerActive && (
+                    <>
+                        <circle
+                            cx="150"
+                            cy="150"
+                            r={radiusOuter}
+                            stroke="#fee2e2" 
+                            strokeWidth="8"
+                            fill="transparent"
+                        />
+                        <circle
+                            cx="150"
+                            cy="150"
+                            r={radiusOuter}
+                            stroke="#ef4444" 
+                            strokeWidth="8"
+                            fill="transparent"
+                            strokeDasharray={circumferenceOuter}
+                            strokeDashoffset={offsetDrain}
+                            strokeLinecap="round"
+                            className="transition-all duration-1000 ease-linear"
+                        />
+                    </>
+                )}
+
+                {/* INNER RING (Sedentary Monitor) */}
                 <circle
-                    cx="144"
-                    cy="144"
+                    cx="150"
+                    cy="150"
                     r={radius}
                     stroke="currentColor"
-                    strokeWidth="15"
+                    strokeWidth="12"
                     fill="transparent"
                     className="text-gray-100"
                 />
                 <circle
-                    cx="144"
-                    cy="144"
+                    cx="150"
+                    cy="150"
                     r={radius}
                     stroke={getProgressColor()}
-                    strokeWidth="15"
+                    strokeWidth="12"
                     fill="transparent"
                     strokeDasharray={circumference}
                     strokeDashoffset={offset}
@@ -663,29 +785,34 @@ const App: React.FC = () => {
                     className="transition-all duration-1000 ease-linear"
                 />
             </svg>
-            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center cursor-pointer" onClick={() => setShowCountdown(!showCountdown)}>
+
+            {/* Center Content */}
+            <div className="absolute flex flex-col items-center justify-center text-center z-20">
                 {isDNDActive ? (
                    <Moon size={48} className="text-indigo-300 mx-auto mb-2" />
                 ) : (
-                   <div className="text-5xl font-bold text-gray-800 font-mono tracking-tighter">
-                       {showCountdown ? formatTime(remainingSeconds) : formatTime(sedentaryTime)}
-                   </div>
+                   <>
+                       <div className="text-5xl font-bold text-gray-800 font-mono tracking-tighter">
+                           {formatTime(sedentaryTime)}
+                       </div>
+                       
+                       {/* Secondary Timer Display (Countdown) */}
+                       {isQuickTimerActive && (
+                           <div className="flex items-center text-red-500 font-bold mt-1 animate-pulse">
+                               <Bell size={14} className="mr-1" />
+                               <span className="font-mono text-lg">-{formatTime(quickTimerLeft)}</span>
+                           </div>
+                       )}
+
+                       <div className={`text-sm mt-1 font-medium flex items-center justify-center ${isQuickTimerActive ? 'text-red-400 opacity-80' : 'text-gray-500'}`}>
+                            {isQuickTimerActive ? t.home.quickTimer : t.home.sedentaryTime}
+                            {!isDNDActive && !isQuickTimerActive && <RefreshCw size={12} className="ml-1 opacity-50" />}
+                       </div>
+                   </>
                 )}
-                <div className="text-gray-500 text-sm mt-1 font-medium flex items-center justify-center">
-                    {isDNDActive ? t.home.zzz : (showCountdown ? t.home.timeUntilBreak : t.home.sedentaryTime)}
-                    {!isDNDActive && <RefreshCw size={12} className="ml-1 opacity-50" />}
-                </div>
             </div>
         </div>
         
-        {/* Toggle Mode Button */}
-        <button 
-            onClick={() => setShowCountdown(!showCountdown)}
-            className="mb-8 text-xs text-indigo-500 font-bold bg-indigo-50 px-3 py-1 rounded-full hover:bg-indigo-100 transition-colors"
-        >
-            {t.home.switchMode}
-        </button>
-
         {/* Status Indicator Area */}
         {isDNDActive ? (
             <div className="w-full max-w-xs mb-8 bg-indigo-50 border border-indigo-200 rounded-xl p-5 flex flex-col items-center justify-center text-center animate-pulse z-10">
@@ -751,13 +878,13 @@ const App: React.FC = () => {
     <div className="px-4 py-8 min-h-screen bg-gray-50 pb-24">
        <h2 className="text-2xl font-bold text-gray-900 mb-4">{t.workouts.title}</h2>
        
-       {/* Category Filters */}
-       <div className="flex overflow-x-auto no-scrollbar space-x-2 mb-6 pb-2">
+       {/* Category Filters (Scrollable) */}
+       <div className="flex overflow-x-auto no-scrollbar space-x-2 mb-6 pb-2 -mx-4 px-4">
            {categories.map(cat => (
                <button
                   key={cat.id}
                   onClick={() => setSelectedCategory(cat.id)}
-                  className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${selectedCategory === cat.id ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 border border-gray-100'}`}
+                  className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors flex-shrink-0 ${selectedCategory === cat.id ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 border border-gray-100 shadow-sm'}`}
                >
                    {cat.label}
                </button>
@@ -799,18 +926,17 @@ const App: React.FC = () => {
   };
 
   const renderStats = () => {
-    // [Updated Logic] Calculate totals based on accumulated + current active session
+    // Calculate totals
     const currentSessionMinutes = Math.floor(sedentaryTime / 60);
     const totalTodayMinutes = todayAccumulatedMinutes + currentSessionMinutes;
     const totalTodayHours = Number((totalTodayMinutes / 60).toFixed(1));
 
     // Health Budget Logic (8 hours = 480 mins)
     const limitMinutes = 8 * 60;
+    const percentUsed = Math.min((totalTodayMinutes / limitMinutes) * 100, 100);
     const remainingMinutes = Math.max(0, limitMinutes - totalTodayMinutes);
     const remainingHours = (remainingMinutes / 60).toFixed(1);
-    const percentUsed = Math.min((totalTodayMinutes / limitMinutes) * 100, 100);
     
-    // Determine color based on usage
     let progressColor = 'bg-green-500';
     if (percentUsed > 75) progressColor = 'bg-yellow-500';
     if (percentUsed > 95) progressColor = 'bg-red-500';
@@ -863,7 +989,6 @@ const App: React.FC = () => {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                 <p className="text-gray-500 text-xs uppercase font-bold mb-1">{t.stats.activeBreaks}</p>
                 <p className="text-2xl font-bold text-green-500">
-                     {/* Show breaks for today based on chart data */}
                      {weeklyStats[weeklyStats.length - 1]?.activeBreaks || 0}
                      <span className="text-sm text-gray-400 font-normal">{t.stats.units.times}</span>
                 </p>
@@ -888,7 +1013,6 @@ const App: React.FC = () => {
   };
 
   const renderProfile = () => {
-    // Dynamic Badges based on stats + Today's budget status
     const currentSessionMinutes = Math.floor(sedentaryTime / 60);
     const totalTodayMinutes = todayAccumulatedMinutes + currentSessionMinutes;
     const badges = getBadges(lang, userStats, totalTodayMinutes);
@@ -953,7 +1077,7 @@ const App: React.FC = () => {
                             
                             {/* Image Preview */}
                             <div className="flex items-center space-x-4 mb-2">
-                                <div className="w-16 h-16 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex-shrink-0">
+                                <div className="w-16 h-16 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex-shrink-0 relative">
                                     {previewUrl || editAvatar ? (
                                         <img src={previewUrl || editAvatar} alt="Preview" className="w-full h-full object-cover" />
                                     ) : (
@@ -1060,7 +1184,6 @@ const App: React.FC = () => {
                     <ChevronRight size={16} className="text-gray-300" />
                 </div>
             </button>
-            {/* About Button */}
             <button 
                 onClick={() => setShowAbout(true)}
                 className="w-full flex justify-between items-center p-4 active:bg-gray-50"

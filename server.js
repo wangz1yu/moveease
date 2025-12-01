@@ -11,7 +11,7 @@ const fs = require('fs');
 const app = express();
 const PORT = 3000;
 
-// 1. 中间件配置
+// 1. Middleware
 app.use(cors({
     origin: [
         'http://localhost:5173', 
@@ -25,16 +25,14 @@ app.use(cors({
 }));
 app.use(bodyParser.json());
 
-// 请求日志
+// Request Logger
 app.use((req, res, next) => {
-  // 强制使用中国时间显示日志
   const time = new Date().toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai' });
-  console.log(`[${time}] 收到请求: ${req.method} ${req.url}`);
+  console.log(`[${time}] Request: ${req.method} ${req.url}`);
   next();
 });
 
-// --- 图片上传配置 (Multer) ---
-// 确保 uploads 目录存在
+// --- Image Upload Configuration (Multer) ---
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)){
     fs.mkdirSync(uploadDir);
@@ -45,7 +43,6 @@ const storage = multer.diskStorage({
     cb(null, uploadDir)
   },
   filename: function (req, file, cb) {
-    // 使用时间戳+扩展名重命名文件，防止重名
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     cb(null, uniqueSuffix + path.extname(file.originalname))
   }
@@ -53,13 +50,11 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-// 将 uploads 目录挂载到 /api/uploads 路径下
-// 这样前端就可以通过 /api/uploads/filename.jpg 访问图片
-// 且能复用现有的 ProxyPass /api/ 规则
+// Serve static files from uploads directory
 app.use('/api/uploads', express.static(uploadDir));
 
 
-// 2. 数据库连接配置
+// 2. Database Connection
 const db = mysql.createPool({
   host: '127.0.0.1',
   user: 'root',
@@ -68,17 +63,17 @@ const db = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  timezone: '+08:00' // [修复] 设置为中国标准时间
+  timezone: '+08:00' // Ensure China Standard Time
 });
 
-// 3. 初始化：测试连接并自动创建表
+// 3. Init: Test Connection & Create Tables
 db.getConnection((err, connection) => {
   if (err) {
-    console.error('❌ 严重错误: 无法连接到数据库。', err.message);
+    console.error('❌ CRITICAL: Cannot connect to DB.', err.message);
     return;
   }
   
-  console.log('✅ 数据库连接成功 (Localhost Mode)！');
+  console.log('✅ DB Connected (Localhost Mode)!');
 
   const createUsersTable = `
     CREATE TABLE IF NOT EXISTS users (
@@ -100,7 +95,6 @@ db.getConnection((err, connection) => {
     )
   `;
 
-  // [新增] 用户统计表 (勋章、连胜)
   const createUserStatsTable = `
     CREATE TABLE IF NOT EXISTS user_stats (
       user_id INT PRIMARY KEY,
@@ -111,7 +105,6 @@ db.getConnection((err, connection) => {
     )
   `;
 
-  // [新增] 每日活动表 (图表数据)
   const createDailyActivitiesTable = `
     CREATE TABLE IF NOT EXISTS daily_activities (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -124,31 +117,31 @@ db.getConnection((err, connection) => {
   `;
 
   connection.query(createUsersTable, (err) => {
-    if (err) console.error('Users表失败:', err.message);
-    else console.log('✅ users 表就绪');
+    if (err) console.error('Users table error:', err.message);
+    else console.log('✅ users table ready');
   });
 
   connection.query(createAnnouncementsTable, (err) => {
-    if (err) console.error('Announcements表失败:', err.message);
-    else console.log('✅ announcements 表就绪');
+    if (err) console.error('Announcements table error:', err.message);
+    else console.log('✅ announcements table ready');
   });
 
   connection.query(createUserStatsTable, (err) => {
-    if (err) console.error('UserStats表失败:', err.message);
-    else console.log('✅ user_stats 表就绪');
+    if (err) console.error('UserStats table error:', err.message);
+    else console.log('✅ user_stats table ready');
   });
 
   connection.query(createDailyActivitiesTable, (err) => {
-    if (err) console.error('DailyActivities表失败:', err.message);
-    else console.log('✅ daily_activities 表就绪');
+    if (err) console.error('DailyActivities table error:', err.message);
+    else console.log('✅ daily_activities table ready');
     connection.release();
   });
 });
 
-// 4. API 路由
+// 4. API Routes
 
 app.get('/', (req, res) => {
-  res.send('✅ SitClock Backend is running! v1.2 (Image Uploads)');
+  res.send('✅ SitClock Backend is running! v1.3 (Dual Timer)');
 });
 
 // --- Upload ---
@@ -156,7 +149,6 @@ app.post('/api/upload-avatar', upload.single('avatar'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
     }
-    // 返回相对路径，前端可以直接使用 /api/uploads/...
     const fileUrl = `/api/uploads/${req.file.filename}`;
     res.json({ url: fileUrl });
 });
@@ -207,17 +199,26 @@ app.post('/api/update-profile', (req, res) => {
 
 // --- Stats & Sync ---
 
-// [GET] 获取用户统计数据
+// [GET] User Stats
 app.get('/api/stats', (req, res) => {
     const { userId } = req.query;
     if(!userId) return res.status(400).json({error: "Missing userId"});
 
-    // 1. 获取总统计
     db.query('SELECT * FROM user_stats WHERE user_id = ?', [userId], (err, statsResults) => {
         if(err) return res.status(500).json({error: err.message});
         
-        // 2. 获取最近7天的活动数据
-        db.query(`SELECT * FROM daily_activities WHERE user_id = ? AND activity_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) ORDER BY activity_date ASC`, [userId], (err, dailyResults) => {
+        // [FIX] Use DATE_FORMAT to enforce YYYY-MM-DD string format to match frontend logic strictly
+        const activityQuery = `
+            SELECT 
+                id, user_id, 
+                DATE_FORMAT(activity_date, '%Y-%m-%d') as activity_date_str, 
+                sedentary_minutes, active_breaks 
+            FROM daily_activities 
+            WHERE user_id = ? AND activity_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) 
+            ORDER BY activity_date ASC
+        `;
+
+        db.query(activityQuery, [userId], (err, dailyResults) => {
              if(err) return res.status(500).json({error: err.message});
              
              res.json({
@@ -228,11 +229,10 @@ app.get('/api/stats', (req, res) => {
     });
 });
 
-// [POST] 同步用户数据 (核心逻辑)
+// [POST] Sync Stats
 app.post('/api/stats', (req, res) => {
     const { userId, totalWorkouts, currentStreak, lastWorkoutDate, todaySedentaryMinutes, todayBreaks } = req.body;
     
-    // 1. 更新或插入 User Stats
     const statsQuery = `
         INSERT INTO user_stats (user_id, total_workouts, current_streak, last_workout_date)
         VALUES (?, ?, ?, ?)
@@ -242,8 +242,9 @@ app.post('/api/stats', (req, res) => {
         last_workout_date = VALUES(last_workout_date)
     `;
     
-    // 2. 更新或插入 Daily Activity (Today)
-    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }); // YYYY-MM-DD
+    // YYYY-MM-DD from frontend logic
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }); 
+    
     const activityQuery = `
         INSERT INTO daily_activities (user_id, activity_date, sedentary_minutes, active_breaks)
         VALUES (?, ?, ?, ?)

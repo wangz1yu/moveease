@@ -48,6 +48,9 @@ export const TRANSLATIONS = {
       moveDesc: "You've been sitting for over {min} minutes. Try a quick stretch.",
       autoPaused: 'Reminders are paused automatically.',
       switchMode: 'Switch Mode',
+      setReminder: 'Quick Timer',
+      quickTimer: 'Reminder',
+      timerFinished: 'Time is up!',
     },
     workouts: {
       title: 'Micro-Fitness',
@@ -183,6 +186,9 @@ export const TRANSLATIONS = {
       moveDesc: "您已经连续坐了超过 {min} 分钟。起来伸个懒腰吧。",
       autoPaused: '提醒已自动暂停。',
       switchMode: '切换模式',
+      setReminder: '定时提醒',
+      quickTimer: '倒计时',
+      timerFinished: '时间到了！',
     },
     workouts: {
       title: '微健身',
