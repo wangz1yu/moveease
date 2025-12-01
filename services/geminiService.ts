@@ -14,7 +14,7 @@ export const generateSmartWorkout = async (focusArea: string, language: Language
       Create a short "Micro-Fitness" workout plan for an office worker focusing on: ${focusArea}.
       Generate 3 simple exercises that can be done in an office chair or standing at a desk.
       Each exercise should take about 30-60 seconds.
-      Provide the response exclusively in JSON format.
+      Provide the response exclusively in raw JSON format (no markdown code blocks).
       The content (name, description) must be written ${langInstruction}.
     `;
 
@@ -41,7 +41,12 @@ export const generateSmartWorkout = async (focusArea: string, language: Language
       }
     });
 
-    const exercises = JSON.parse(response.text || "[]");
+    let rawText = response.text || "[]";
+    
+    // Clean up Markdown code blocks if present (e.g. ```json ... ```)
+    rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    const exercises = JSON.parse(rawText);
     
     // Patch images with random IDs to ensure they look different
     return exercises.map((ex: any, index: number) => ({
@@ -51,17 +56,6 @@ export const generateSmartWorkout = async (focusArea: string, language: Language
 
   } catch (error) {
     console.error("Gemini API Error:", error);
-    // Fallback if API fails
-    const isZh = language === 'zh';
-    return [
-      {
-        id: 'fallback-1',
-        name: isZh ? '深呼吸' : 'Deep Breathing',
-        duration: 60,
-        category: 'fullbody',
-        description: isZh ? '深吸气4秒，屏息4秒，然后呼气4秒。' : 'Inhale deeply for 4 seconds, hold for 4, exhale for 4.',
-        imageUrl: 'https://picsum.photos/400/300?random=99'
-      }
-    ];
+    throw error; // Re-throw to handle in UI
   }
 };

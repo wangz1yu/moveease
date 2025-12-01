@@ -4,6 +4,9 @@ const mysql = require('mysql2');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = 3000;
@@ -29,6 +32,32 @@ app.use((req, res, next) => {
   console.log(`[${time}] 收到请求: ${req.method} ${req.url}`);
   next();
 });
+
+// --- 图片上传配置 (Multer) ---
+// 确保 uploads 目录存在
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)){
+    fs.mkdirSync(uploadDir);
+}
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir)
+  },
+  filename: function (req, file, cb) {
+    // 使用时间戳+扩展名重命名文件，防止重名
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname))
+  }
+});
+
+const upload = multer({ storage: storage });
+
+// 将 uploads 目录挂载到 /api/uploads 路径下
+// 这样前端就可以通过 /api/uploads/filename.jpg 访问图片
+// 且能复用现有的 ProxyPass /api/ 规则
+app.use('/api/uploads', express.static(uploadDir));
+
 
 // 2. 数据库连接配置
 const db = mysql.createPool({
@@ -119,7 +148,17 @@ db.getConnection((err, connection) => {
 // 4. API 路由
 
 app.get('/', (req, res) => {
-  res.send('✅ SitClock Backend is running! v1.1 (DB Sync)');
+  res.send('✅ SitClock Backend is running! v1.2 (Image Uploads)');
+});
+
+// --- Upload ---
+app.post('/api/upload-avatar', upload.single('avatar'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+    }
+    // 返回相对路径，前端可以直接使用 /api/uploads/...
+    const fileUrl = `/api/uploads/${req.file.filename}`;
+    res.json({ url: fileUrl });
 });
 
 // --- Auth ---

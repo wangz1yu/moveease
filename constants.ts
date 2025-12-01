@@ -10,6 +10,9 @@ export const TRANSLATIONS = {
       back: 'Back',
       loading: 'Loading...',
       edit: 'Edit',
+      about: 'About SitClock',
+      version: 'Version',
+      upload: 'Upload Photo',
     },
     auth: {
       welcome: 'Welcome to SitClock',
@@ -36,6 +39,7 @@ export const TRANSLATIONS = {
       paused: 'Monitoring Paused',
       dndActive: 'Do Not Disturb',
       sedentaryTime: 'Sedentary Time',
+      timeUntilBreak: 'Time Until Break',
       zzz: 'Zzz...',
       resume: 'Resume',
       pause: 'Pause',
@@ -43,6 +47,7 @@ export const TRANSLATIONS = {
       timeToMove: 'Time to Move!',
       moveDesc: "You've been sitting for over {min} minutes. Try a quick stretch.",
       autoPaused: 'Reminders are paused automatically.',
+      switchMode: 'Switch Mode',
     },
     workouts: {
       title: 'Micro-Fitness',
@@ -53,6 +58,14 @@ export const TRANSLATIONS = {
       recommended: 'Recommended for You',
       startActivity: 'Start Activity',
       duration: '{s}s',
+      categories: {
+        all: 'All',
+        neck: 'Neck',
+        waist: 'Waist',
+        eyes: 'Eyes',
+        shoulders: 'Shoulders',
+        fullbody: 'Full Body'
+      }
     },
     player: {
       timeRemaining: 'Time Remaining',
@@ -85,6 +98,7 @@ export const TRANSLATIONS = {
       plan: 'Free Plan',
       editProfile: 'Edit Profile',
       avatarUrl: 'Avatar URL',
+      tapToChange: 'Tap to change photo'
     },
     dnd: {
       title: 'Do Not Disturb',
@@ -131,6 +145,9 @@ export const TRANSLATIONS = {
       back: '返回',
       loading: '加载中...',
       edit: '编辑',
+      about: '关于 SitClock',
+      version: '版本',
+      upload: '上传头像',
     },
     auth: {
       welcome: '欢迎使用 SitClock',
@@ -157,6 +174,7 @@ export const TRANSLATIONS = {
       paused: '监测已暂停',
       dndActive: '勿扰模式',
       sedentaryTime: '久坐时长',
+      timeUntilBreak: '距离休息还剩',
       zzz: '休息中...',
       resume: '继续',
       pause: '暂停',
@@ -164,6 +182,7 @@ export const TRANSLATIONS = {
       timeToMove: '该动一动了！',
       moveDesc: "您已经连续坐了超过 {min} 分钟。起来伸个懒腰吧。",
       autoPaused: '提醒已自动暂停。',
+      switchMode: '切换模式',
     },
     workouts: {
       title: '微健身',
@@ -174,6 +193,14 @@ export const TRANSLATIONS = {
       recommended: '为您推荐',
       startActivity: '开始跟练',
       duration: '{s}秒',
+      categories: {
+        all: '全部',
+        neck: '肩颈',
+        waist: '腰部',
+        eyes: '眼部',
+        shoulders: '肩膀',
+        fullbody: '全身'
+      }
     },
     player: {
       timeRemaining: '剩余时间',
@@ -206,6 +233,7 @@ export const TRANSLATIONS = {
       plan: '免费版',
       editProfile: '修改资料',
       avatarUrl: '头像链接',
+      tapToChange: '点击更换头像'
     },
     dnd: {
       title: '勿扰设置',
@@ -291,14 +319,33 @@ export const getMockExercises = (lang: Language): Exercise[] => {
       category: 'neck',
       description: isZh ? '将肩膀提至耳边，保持3秒后用力沉肩放松。重复此动作。' : 'Lift shoulders to ears, hold for 3 seconds, and drop them down to release tension. Repeat.',
       imageUrl: 'https://picsum.photos/400/300?random=4'
+    },
+    {
+      id: '5',
+      name: isZh ? '开合跳' : 'Jumping Jacks',
+      duration: 45,
+      category: 'fullbody',
+      description: isZh ? '双脚并拢站立，双手放在身体两侧。跳起时双脚分开，双手举过头顶。' : 'Stand with feet together. Jump to spread feet while raising arms overhead.',
+      imageUrl: 'https://picsum.photos/400/300?random=5'
+    },
+    {
+      id: '6',
+      name: isZh ? '扩胸运动' : 'Chest Opener',
+      duration: 40,
+      category: 'shoulders',
+      description: isZh ? '双臂侧平举，向后用力打开，感受胸部拉伸。' : 'Open arms wide to the sides, press back gently to feel a stretch in the chest.',
+      imageUrl: 'https://picsum.photos/400/300?random=6'
     }
   ];
 };
 
-export const getBadges = (lang: Language, stats?: UserStats): Badge[] => {
+export const getBadges = (lang: Language, stats?: UserStats, todayMinutes: number = 0): Badge[] => {
   const isZh = lang === 'zh';
   const total = stats?.totalWorkouts || 0;
   const streak = stats?.currentStreak || 0;
+  
+  // 8 hours = 480 minutes
+  const isWithinBudget = todayMinutes <= 480;
 
   return [
     { 
@@ -316,6 +363,13 @@ export const getBadges = (lang: Language, stats?: UserStats): Badge[] => {
         description: isZh ? '连续3天每天至少完成1次课程。' : 'Complete at least 1 workout/day for 3 days in a row.' 
     },
     { 
+        id: 'budget_keeper', 
+        name: isZh ? '自律卫士' : 'Budget Keeper', 
+        icon: '⚖️', 
+        unlocked: total > 0 && isWithinBudget, 
+        description: isZh ? '今日久坐未超过8小时且已活动。' : 'Stayed under 8h sedentary today & moved.' 
+    },
+    { 
         id: '3', 
         name: isZh ? '健身达人' : 'Fitness Pro', 
         icon: '💪', 
@@ -328,27 +382,6 @@ export const getBadges = (lang: Language, stats?: UserStats): Badge[] => {
         icon: '🦒', 
         unlocked: total >= 50, 
         description: isZh ? '累计完成50次课程。' : 'Accumulate 50 completed workouts.' 
-    },
-    { 
-        id: '5', 
-        name: isZh ? '夜猫子' : 'Night Owl', 
-        icon: '🦉', 
-        unlocked: false, 
-        description: isZh ? '在晚上10点后完成一次放松（开发中）。' : 'Complete a session after 10 PM (In Dev).' 
-    },
-    { 
-        id: '6', 
-        name: isZh ? '周末战士' : 'Weekend Warrior', 
-        icon: '⚔️', 
-        unlocked: false, 
-        description: isZh ? '在周六和周日都完成了目标（开发中）。' : 'Hit goals on Sat & Sun (In Dev).' 
-    },
-    { 
-        id: '7', 
-        name: isZh ? '专注大师' : 'Focus Master', 
-        icon: '🧘', 
-        unlocked: false, 
-        description: isZh ? '累计记录久坐时间超过50小时（开发中）。' : 'Log 50+ hours of sedentary time (In Dev).' 
     },
     { 
         id: '8', 

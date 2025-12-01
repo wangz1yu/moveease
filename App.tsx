@@ -10,7 +10,7 @@ import { AppView, Exercise, UserSettings, User, DailyStat, UserStats, Quote } fr
 import { TRANSLATIONS, getMockExercises, getBadges, INSPIRATIONAL_QUOTES } from './constants';
 import { generateSmartWorkout } from './services/geminiService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut, Bell, Edit2, Camera, Loader2, Quote as QuoteIcon, Heart, Star, ThumbsUp } from 'lucide-react';
+import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut, Bell, Edit2, Camera, Loader2, Quote as QuoteIcon, Heart, Star, ThumbsUp, Info, Upload } from 'lucide-react';
 
 const SETTINGS_KEY = 'moveease_settings_v1';
 const TIMER_KEY = 'moveease_timer_v1';
@@ -18,6 +18,37 @@ const SESSION_KEY = 'moveease_user_session';
 
 // Helper for days
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// --- About Modal Component ---
+const AboutModal = ({ isOpen, onClose, lang }: { isOpen: boolean; onClose: () => void; lang: 'en' | 'zh' }) => {
+    if (!isOpen) return null;
+    const t = TRANSLATIONS[lang];
+    
+    return (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+            <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl z-10 p-6 animate-in zoom-in-95">
+                <div className="flex flex-col items-center mb-4">
+                     <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg mb-3">
+                        <span className="text-3xl">🏃</span>
+                     </div>
+                     <h2 className="text-xl font-bold text-gray-900">SitClock</h2>
+                     <p className="text-sm text-gray-500">{t.common.version} 1.3.0</p>
+                </div>
+                <div className="text-sm text-gray-600 space-y-2 text-center mb-6">
+                    <p>{lang === 'zh' ? 'SitClock 致力于通过智能提醒和微健身课程，帮助久坐人群改善健康状况。' : 'SitClock is dedicated to helping sedentary people improve their health through smart reminders and micro-fitness courses.'}</p>
+                    <p className="text-xs text-gray-400 mt-4">© 2024 SitClock. All rights reserved.</p>
+                </div>
+                <button 
+                    onClick={onClose}
+                    className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-xl transition-colors"
+                >
+                    {t.common.confirm}
+                </button>
+            </div>
+        </div>
+    );
+};
 
 const App: React.FC = () => {
   // --- Auth State ---
@@ -32,6 +63,7 @@ const App: React.FC = () => {
 
   const [currentView, setCurrentView] = useState<AppView>(AppView.HOME);
   const [showAnnouncements, setShowAnnouncements] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
 
   const getUserKey = (key: string) => {
     return currentUser ? `${key}_${currentUser.id}` : key;
@@ -49,6 +81,7 @@ const App: React.FC = () => {
   const [sedentaryTime, setSedentaryTime] = useState(0); // Current active timer
   const [todayAccumulatedMinutes, setTodayAccumulatedMinutes] = useState(0); // Confirmed/Saved minutes for today
   const [isMonitoring, setIsMonitoring] = useState(true);
+  const [showCountdown, setShowCountdown] = useState(false); // Toggle between count up/down
   
   // Initialize with empty 7 days to avoid chart errors
   const [weeklyStats, setWeeklyStats] = useState<DailyStat[]>(() => {
@@ -78,6 +111,9 @@ const App: React.FC = () => {
   // 5. Celebration State
   const [celebration, setCelebration] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
 
+  // 6. Workout Filters
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
   // --- API SYNC FUNCTIONS ---
 
   // Sync stats to server
@@ -101,6 +137,11 @@ const App: React.FC = () => {
       }
   };
 
+  const migrateLegacyStats = async (stats: UserStats, todayMinutes: number, todayBreaks: number) => {
+      console.log("Migrating legacy stats to DB...");
+      await syncStats(stats, todayMinutes, todayBreaks);
+  };
+
   // Fetch stats from server (With Migration Logic)
   const fetchStats = async (userId: string) => {
       try {
@@ -108,15 +149,15 @@ const App: React.FC = () => {
           if (res.ok) {
               const data = await res.json();
               
-              // === 关键修复：数据迁移逻辑 ===
+              // === 数据迁移逻辑 ===
+              // 如果数据库返回空数据(0)，但本地状态有数据(>0)，说明是老用户初次使用新后端
+              // 此时需要把本地数据同步上去，而不是被0覆盖
               if ((!data.stats || data.stats.total_workouts === 0) && userStats.totalWorkouts > 0) {
-                   console.log("Migrating legacy stats to DB...");
-                   // 使用当前本地数据立即同步一次
                    const todayIndex = weeklyStats.length - 1;
                    const todayMinutes = (weeklyStats[todayIndex]?.sedentaryHours || 0) * 60;
                    const todayBreaks = weeklyStats[todayIndex]?.activeBreaks || 0;
-                   await syncStats(userStats, todayMinutes, todayBreaks);
-                   return; // 结束，保留本地数据作为最新数据
+                   await migrateLegacyStats(userStats, todayMinutes, todayBreaks);
+                   return; 
               }
               // ===========================
 
@@ -136,8 +177,6 @@ const App: React.FC = () => {
               });
 
               // 3. Set Today Accumulated
-              // IMPORTANT: The server returns dates in user's timezone if configured correctly.
-              // We'll trust the date string matching.
               const todayStr = today.toISOString().split('T')[0];
               const todayRecord = data.activity.find((a: any) => a.activity_date.startsWith(todayStr));
               if (todayRecord) {
@@ -208,10 +247,15 @@ const App: React.FC = () => {
   // UI State
   const [showDNDManager, setShowDNDManager] = useState(false);
   const [activeExercise, setActiveExercise] = useState<Exercise | null>(null);
+  
+  // Profile Edit State
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState('');
-  const [editAvatar, setEditAvatar] = useState('');
+  const [editAvatar, setEditAvatar] = useState(''); // Stores URL
+  const [selectedFile, setSelectedFile] = useState<File | null>(null); // Stores file for upload
+  const [previewUrl, setPreviewUrl] = useState(''); // Stores preview blob
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  
   const [isDNDActive, setIsDNDActive] = useState(false);
   const [activeDNDLabel, setActiveDNDLabel] = useState<string>('');
   const [alertLevel, setAlertLevel] = useState(0); 
@@ -325,9 +369,6 @@ const App: React.FC = () => {
     const todayIndex = newWeeklyStats.length - 1;
     if (newWeeklyStats[todayIndex]) {
         newWeeklyStats[todayIndex].activeBreaks = totalBreaksToday;
-        // Note: Chart render logic below combines accumulated + current, 
-        // so we don't strictly need to update sedentaryHours here if we update todayAccumulatedMinutes,
-        // but let's keep it consistent.
         newWeeklyStats[todayIndex].sedentaryHours = Number((newAccumulatedMinutes / 60).toFixed(1));
     }
     setWeeklyStats(newWeeklyStats);
@@ -374,7 +415,7 @@ const App: React.FC = () => {
       const randomMsg = messages[Math.floor(Math.random() * messages.length)];
       setCelebration({ show: true, message: randomMsg });
 
-      // 2. Reset Timer (without incrementing break count, just accumulating time)
+      // 2. Reset Timer
       resetTimer(false);
 
       // 3. Clear Animation after delay
@@ -385,9 +426,18 @@ const App: React.FC = () => {
 
   const handleGenerateWorkout = async () => {
     setIsGenerating(true);
-    const newPlan = await generateSmartWorkout('neck', lang);
-    setExercises(newPlan);
-    setIsGenerating(false);
+    try {
+        // Use user selected category for AI prompt if possible, or default to neck
+        const promptCategory = selectedCategory === 'all' ? 'neck' : selectedCategory;
+        const newPlan = await generateSmartWorkout(promptCategory, lang);
+        setExercises(newPlan);
+    } catch (e) {
+        console.error("Plan generation failed", e);
+        // Toast or Alert could be added here
+        alert(lang === 'zh' ? '生成失败，请重试' : 'Generation failed, please try again.');
+    } finally {
+        setIsGenerating(false);
+    }
   };
 
   const toggleLanguage = () => {
@@ -413,25 +463,59 @@ const App: React.FC = () => {
     setUserStats({ totalWorkouts: 0, currentStreak: 0, lastWorkoutDate: null });
   };
 
+  // --- Profile Update with Image Upload ---
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files[0]) {
+          const file = e.target.files[0];
+          setSelectedFile(file);
+          setPreviewUrl(URL.createObjectURL(file));
+      }
+  };
+
   const handleUpdateProfile = async () => {
       if (!currentUser) return;
       setIsSavingProfile(true);
+      
+      let finalAvatarUrl = editAvatar;
+
       try {
+          // 1. Upload Image if selected
+          if (selectedFile) {
+              const formData = new FormData();
+              formData.append('avatar', selectedFile);
+              
+              const uploadRes = await fetch('/api/upload-avatar', {
+                  method: 'POST',
+                  body: formData
+              });
+              
+              if (uploadRes.ok) {
+                  const data = await uploadRes.json();
+                  finalAvatarUrl = data.url;
+              } else {
+                  console.error('Image upload failed');
+              }
+          }
+
+          // 2. Update Profile
           const response = await fetch('/api/update-profile', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                   id: currentUser.id,
                   name: editName,
-                  avatar: editAvatar
+                  avatar: finalAvatarUrl
               })
           });
           
           if (!response.ok) throw new Error('Failed to update');
           
-          const updatedUser = { ...currentUser, name: editName, avatar: editAvatar };
+          const updatedUser = { ...currentUser, name: editName, avatar: finalAvatarUrl };
           setCurrentUser(updatedUser);
           localStorage.setItem(SESSION_KEY, JSON.stringify(updatedUser));
+          
+          // Cleanup
+          if (previewUrl) URL.revokeObjectURL(previewUrl);
           setIsEditingProfile(false);
       } catch (e) {
           console.error(e);
@@ -448,11 +532,12 @@ const App: React.FC = () => {
   };
 
   const getProgressColor = () => {
-    if (isDNDActive) return 'stroke-indigo-200'; 
-    if (!isMonitoring) return 'stroke-gray-300';
-    if (sedentaryTime < threshold * 0.5) return 'stroke-green-500';
-    if (sedentaryTime < threshold * 0.9) return 'stroke-yellow-500';
-    return 'stroke-red-500';
+    if (isDNDActive) return 'url(#gradientDND)'; 
+    if (!isMonitoring) return '#D1D5DB';
+    // Use gradient IDs
+    if (sedentaryTime < threshold * 0.5) return 'url(#gradientGreen)';
+    if (sedentaryTime < threshold * 0.9) return 'url(#gradientYellow)';
+    return 'url(#gradientRed)';
   };
 
   // --- VIEWS ---
@@ -462,6 +547,9 @@ const App: React.FC = () => {
     const radius = 100;
     const circumference = 2 * Math.PI * radius;
     const offset = circumference - (progress / 100) * circumference;
+
+    // Countdown value logic
+    const remainingSeconds = Math.max(0, threshold - sedentaryTime);
 
     return (
       <div className="flex flex-col items-center pt-8 px-6 min-h-screen bg-gray-50 relative overflow-hidden">
@@ -532,9 +620,27 @@ const App: React.FC = () => {
             </div>
         </header>
 
-        {/* Circular Timer */}
-        <div className="relative mb-10 z-10">
+        {/* Circular Timer with Gradients */}
+        <div className="relative mb-6 z-10">
             <svg className="transform -rotate-90 w-72 h-72">
+                <defs>
+                    <linearGradient id="gradientGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#4ade80" />
+                        <stop offset="100%" stopColor="#22c55e" />
+                    </linearGradient>
+                    <linearGradient id="gradientYellow" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#facc15" />
+                        <stop offset="100%" stopColor="#eab308" />
+                    </linearGradient>
+                    <linearGradient id="gradientRed" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#f87171" />
+                        <stop offset="100%" stopColor="#ef4444" />
+                    </linearGradient>
+                     <linearGradient id="gradientDND" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#c7d2fe" />
+                        <stop offset="100%" stopColor="#818cf8" />
+                    </linearGradient>
+                </defs>
                 <circle
                     cx="144"
                     cy="144"
@@ -542,34 +648,43 @@ const App: React.FC = () => {
                     stroke="currentColor"
                     strokeWidth="15"
                     fill="transparent"
-                    className="text-gray-200"
+                    className="text-gray-100"
                 />
                 <circle
                     cx="144"
                     cy="144"
                     r={radius}
-                    stroke="currentColor"
+                    stroke={getProgressColor()}
                     strokeWidth="15"
                     fill="transparent"
                     strokeDasharray={circumference}
                     strokeDashoffset={offset}
                     strokeLinecap="round"
-                    className={`transition-all duration-1000 ease-linear ${getProgressColor()}`}
+                    className="transition-all duration-1000 ease-linear"
                 />
             </svg>
-            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center cursor-pointer" onClick={() => setShowCountdown(!showCountdown)}>
                 {isDNDActive ? (
                    <Moon size={48} className="text-indigo-300 mx-auto mb-2" />
                 ) : (
                    <div className="text-5xl font-bold text-gray-800 font-mono tracking-tighter">
-                       {formatTime(sedentaryTime)}
+                       {showCountdown ? formatTime(remainingSeconds) : formatTime(sedentaryTime)}
                    </div>
                 )}
-                <div className="text-gray-500 text-sm mt-1 font-medium">
-                    {isDNDActive ? t.home.zzz : t.home.sedentaryTime}
+                <div className="text-gray-500 text-sm mt-1 font-medium flex items-center justify-center">
+                    {isDNDActive ? t.home.zzz : (showCountdown ? t.home.timeUntilBreak : t.home.sedentaryTime)}
+                    {!isDNDActive && <RefreshCw size={12} className="ml-1 opacity-50" />}
                 </div>
             </div>
         </div>
+        
+        {/* Toggle Mode Button */}
+        <button 
+            onClick={() => setShowCountdown(!showCountdown)}
+            className="mb-8 text-xs text-indigo-500 font-bold bg-indigo-50 px-3 py-1 rounded-full hover:bg-indigo-100 transition-colors"
+        >
+            {t.home.switchMode}
+        </button>
 
         {/* Status Indicator Area */}
         {isDNDActive ? (
@@ -617,10 +732,38 @@ const App: React.FC = () => {
     );
   };
 
-  const renderWorkouts = () => (
+  const renderWorkouts = () => {
+    // Filter Categories
+    const categories = [
+        { id: 'all', label: t.workouts.categories.all },
+        { id: 'neck', label: t.workouts.categories.neck },
+        { id: 'waist', label: t.workouts.categories.waist },
+        { id: 'shoulders', label: t.workouts.categories.shoulders },
+        { id: 'eyes', label: t.workouts.categories.eyes },
+        { id: 'fullbody', label: t.workouts.categories.fullbody },
+    ];
+
+    const filteredExercises = selectedCategory === 'all' 
+        ? exercises 
+        : exercises.filter(ex => ex.category === selectedCategory);
+
+    return (
     <div className="px-4 py-8 min-h-screen bg-gray-50 pb-24">
-       <h2 className="text-2xl font-bold text-gray-900 mb-6">{t.workouts.title}</h2>
+       <h2 className="text-2xl font-bold text-gray-900 mb-4">{t.workouts.title}</h2>
        
+       {/* Category Filters */}
+       <div className="flex overflow-x-auto no-scrollbar space-x-2 mb-6 pb-2">
+           {categories.map(cat => (
+               <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategory(cat.id)}
+                  className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${selectedCategory === cat.id ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 border border-gray-100'}`}
+               >
+                   {cat.label}
+               </button>
+           ))}
+       </div>
+
        <div className="bg-indigo-600 rounded-2xl p-5 mb-8 text-white shadow-lg shadow-indigo-200">
             <h3 className="font-bold text-lg mb-2 flex items-center">
                 <Zap className="mr-2 fill-yellow-400 text-yellow-400" size={20}/> 
@@ -640,17 +783,20 @@ const App: React.FC = () => {
 
        <div className="space-y-4">
             <h3 className="font-bold text-gray-700 mb-2">{t.workouts.recommended}</h3>
-            {exercises.map((ex) => (
+            {filteredExercises.length > 0 ? filteredExercises.map((ex) => (
                 <WorkoutCard 
                     key={ex.id} 
                     exercise={ex}
                     lang={lang}
                     onPlay={() => setActiveExercise(ex)} 
                 />
-            ))}
+            )) : (
+                <p className="text-gray-400 text-center text-sm py-4">No exercises found for this category.</p>
+            )}
        </div>
     </div>
-  );
+    );
+  };
 
   const renderStats = () => {
     // [Updated Logic] Calculate totals based on accumulated + current active session
@@ -742,8 +888,10 @@ const App: React.FC = () => {
   };
 
   const renderProfile = () => {
-    // Dynamic Badges based on stats
-    const badges = getBadges(lang, userStats);
+    // Dynamic Badges based on stats + Today's budget status
+    const currentSessionMinutes = Math.floor(sedentaryTime / 60);
+    const totalTodayMinutes = todayAccumulatedMinutes + currentSessionMinutes;
+    const badges = getBadges(lang, userStats, totalTodayMinutes);
     const unlockedBadgesCount = badges.filter(b => b.unlocked).length;
 
     return (
@@ -762,6 +910,8 @@ const App: React.FC = () => {
                   onClick={() => {
                       setEditName(currentUser?.name || '');
                       setEditAvatar(currentUser?.avatar || '');
+                      setSelectedFile(null);
+                      setPreviewUrl('');
                       setIsEditingProfile(true);
                   }}
                   className="absolute bottom-0 right-0 bg-indigo-600 text-white p-1.5 rounded-full shadow-md border-2 border-white hover:bg-indigo-700 active:scale-95 transition-all"
@@ -797,16 +947,37 @@ const App: React.FC = () => {
                                 className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-200 outline-none"
                             />
                         </div>
+                        
                         <div>
                             <label className="text-xs font-bold text-gray-500 mb-1 block">{t.profile.avatarUrl}</label>
+                            
+                            {/* Image Preview */}
+                            <div className="flex items-center space-x-4 mb-2">
+                                <div className="w-16 h-16 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex-shrink-0">
+                                    {previewUrl || editAvatar ? (
+                                        <img src={previewUrl || editAvatar} alt="Preview" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                            <Camera size={24} />
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex-1">
+                                    <label className="flex items-center justify-center w-full px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold cursor-pointer hover:bg-indigo-100 transition-colors">
+                                        <Upload size={14} className="mr-2" />
+                                        {t.common.upload}
+                                        <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                                    </label>
+                                </div>
+                            </div>
+
                             <div className="relative">
-                                <Camera className="absolute left-3 top-3 text-gray-400" size={18} />
                                 <input 
                                     type="text" 
                                     value={editAvatar}
                                     onChange={(e) => setEditAvatar(e.target.value)}
-                                    placeholder="https://..."
-                                    className="w-full pl-10 pr-3 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-200 outline-none"
+                                    placeholder="https://... (or upload)"
+                                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-200 outline-none text-sm text-gray-500"
                                 />
                             </div>
                         </div>
@@ -876,7 +1047,7 @@ const App: React.FC = () => {
             </button>
             <button 
                 onClick={toggleLanguage}
-                className="w-full flex justify-between items-center p-4 active:bg-gray-50"
+                className="w-full flex justify-between items-center p-4 border-b border-gray-50 active:bg-gray-50"
             >
                 <div className="flex items-center">
                     <Globe className="text-blue-500 mr-3" size={18} />
@@ -888,6 +1059,17 @@ const App: React.FC = () => {
                     </span>
                     <ChevronRight size={16} className="text-gray-300" />
                 </div>
+            </button>
+            {/* About Button */}
+            <button 
+                onClick={() => setShowAbout(true)}
+                className="w-full flex justify-between items-center p-4 active:bg-gray-50"
+            >
+                <div className="flex items-center">
+                    <Info className="text-gray-500 mr-3" size={18} />
+                    <span className="text-sm font-medium text-gray-700">{t.common.about}</span>
+                </div>
+                <ChevronRight size={16} className="text-gray-300" />
             </button>
         </div>
 
@@ -915,6 +1097,11 @@ const App: React.FC = () => {
         onClose={() => setShowAnnouncements(false)}
         lang={lang}
         currentUser={currentUser}
+      />
+      <AboutModal 
+        isOpen={showAbout}
+        onClose={() => setShowAbout(false)}
+        lang={lang}
       />
       {activeExercise ? (
         <WorkoutPlayer 
