@@ -594,10 +594,9 @@ const App: React.FC = () => {
 
     // 2. Outer Ring (Quick Timer) Logic
     const isQuickTimerActive = quickTimerLeft > 0;
-    const quickProgress = quickTimerTotal > 0 ? ((quickTimerTotal - quickTimerLeft) / quickTimerTotal) * 100 : 0;
     const radiusOuter = 120;
     const circumferenceOuter = 2 * Math.PI * radiusOuter;
-    const offsetOuter = circumferenceOuter - (quickProgress / 100) * circumferenceOuter; // Fill up as time passes? Or drain? Let's drain.
+    
     // To drain: offsetOuter = (quickProgress/100) * circumferenceOuter ?? No.
     // Let's make it drain: offset goes from 0 to circumference.
     // Progress: timeLeft / Total. 100% -> 0%.
@@ -716,7 +715,8 @@ const App: React.FC = () => {
 
         {/* Dual Circular Timer */}
         <div className="relative mb-6 z-10 w-72 h-72 flex items-center justify-center">
-            <svg className="absolute inset-0 transform -rotate-90 w-full h-full" viewBox="0 0 300 300">
+            {/* Added scale-x-[-1] for reversal effect */}
+            <svg className="absolute inset-0 transform -rotate-90 scale-x-[-1] w-full h-full" viewBox="0 0 300 300">
                 <defs>
                     <linearGradient id="gradientGreen" x1="0%" y1="0%" x2="100%" y2="100%">
                         <stop offset="0%" stopColor="#4ade80" />
