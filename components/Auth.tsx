@@ -138,8 +138,20 @@ const Auth: React.FC<AuthProps> = ({ onLogin, lang }) => {
           <img 
             src="/logo.png" 
             alt="SitClock" 
-            className="w-[100px] h-[100px] rounded-2xl mx-auto shadow-lg shadow-indigo-200 mb-4 transform -rotate-6 object-cover bg-white" 
+            // Removed -rotate-6 and ensured 100x100 size without weird padding
+            className="w-[100px] h-[100px] rounded-2xl mx-auto shadow-lg shadow-indigo-200 mb-4 object-cover bg-white" 
+            onError={(e) => {
+              // Fallback if image fails
+              e.currentTarget.style.display = 'none';
+              const fallback = document.getElementById('logo-fallback');
+              if (fallback) fallback.style.display = 'flex';
+            }}
           />
+          {/* Fallback for broken image */}
+          <div id="logo-fallback" style={{ display: 'none' }} className="w-[100px] h-[100px] rounded-2xl mx-auto shadow-lg shadow-indigo-200 mb-4 bg-indigo-600 text-white items-center justify-center text-4xl font-bold">
+             S
+          </div>
+
           <h1 className="text-2xl font-bold text-gray-900">{t.welcome}</h1>
           <p className="text-gray-500">{t.subtitle}</p>
         </div>

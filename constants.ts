@@ -104,7 +104,10 @@ export const TRANSLATIONS = {
       plan: 'Free Plan',
       editProfile: 'Edit Profile',
       avatarUrl: 'Avatar URL',
-      tapToChange: 'Tap to change photo'
+      tapToChange: 'Tap to change photo',
+      reminderInterval: 'Reminder Interval',
+      setThreshold: 'Set Reminder Interval',
+      minutes: 'min'
     },
     dnd: {
       title: 'Do Not Disturb',
@@ -245,7 +248,10 @@ export const TRANSLATIONS = {
       plan: '免费版',
       editProfile: '修改资料',
       avatarUrl: '头像链接',
-      tapToChange: '点击更换头像'
+      tapToChange: '点击更换头像',
+      reminderInterval: '久坐提醒间隔',
+      setThreshold: '设置提醒间隔',
+      minutes: '分钟'
     },
     dnd: {
       title: '勿扰设置',

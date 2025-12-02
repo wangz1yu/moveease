@@ -10,7 +10,7 @@ import { AppView, Exercise, UserSettings, User, DailyStat, UserStats, Quote } fr
 import { TRANSLATIONS, getMockExercises, getBadges, INSPIRATIONAL_QUOTES } from './constants';
 import { generateSmartWorkout } from './services/geminiService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut, Bell, Edit2, Camera, Loader2, Quote as QuoteIcon, Heart, Star, ThumbsUp, Info, Upload, AlarmClock, X } from 'lucide-react';
+import { Play, Pause, RefreshCw, Smartphone, Award, ChevronRight, Zap, Moon, Globe, LogOut, Bell, Edit2, Camera, Loader2, Quote as QuoteIcon, Heart, Star, ThumbsUp, Info, Upload, AlarmClock, X, Clock } from 'lucide-react';
 
 const SETTINGS_KEY = 'moveease_settings_v1';
 const TIMER_KEY = 'moveease_timer_v1';
@@ -32,7 +32,9 @@ const AboutModal = ({ isOpen, onClose, lang }: { isOpen: boolean; onClose: () =>
                      <img 
                         src="/logo.png" 
                         alt="SitClock" 
-                        className="w-[80px] h-[80px] rounded-2xl flex items-center justify-center shadow-lg mb-3 object-cover bg-white"
+                        // Standardized 100x100 size without padding
+                        className="w-[100px] h-[100px] rounded-2xl flex items-center justify-center shadow-lg mb-3 object-cover bg-white"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
                      />
                      <h2 className="text-xl font-bold text-gray-900">SitClock</h2>
                      <p className="text-sm text-gray-500">{t.common.version} 1.4.0</p>
@@ -89,6 +91,10 @@ const App: React.FC = () => {
   const [customTimerInput, setCustomTimerInput] = useState('');
   const [showCustomTimerInput, setShowCustomTimerInput] = useState(false);
   
+  // Custom Threshold State
+  const [showThresholdSettings, setShowThresholdSettings] = useState(false);
+  const [customThresholdInput, setCustomThresholdInput] = useState('');
+
   // Quick Timer / Countdown State
   // [NEW] Use End Timestamp for sync
   const [quickTimerEndAt, setQuickTimerEndAt] = useState<number | null>(null);
@@ -1271,6 +1277,60 @@ const App: React.FC = () => {
             </div>
         )}
 
+        {/* Reminder Threshold Settings Modal */}
+        {showThresholdSettings && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowThresholdSettings(false)} />
+                <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl z-10 p-6 animate-in zoom-in-95">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-bold text-gray-900">{t.profile.setThreshold}</h3>
+                        <button onClick={() => setShowThresholdSettings(false)}><X size={20} className="text-gray-400"/></button>
+                    </div>
+                    
+                    <div className="space-y-3 mb-4">
+                        {[30, 45, 60].map(min => (
+                            <button
+                                key={min}
+                                onClick={() => {
+                                    setUserSettings({ ...userSettings, sedentaryThreshold: min });
+                                    setShowThresholdSettings(false);
+                                }}
+                                className={`w-full p-3 rounded-xl border font-bold text-sm transition-colors ${userSettings.sedentaryThreshold === min ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+                            >
+                                {min} {t.profile.minutes}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="border-t border-gray-100 pt-4">
+                         <label className="text-xs text-gray-500 block mb-2 font-medium">{t.home.custom}</label>
+                         <div className="flex space-x-2">
+                             <input 
+                                 type="number"
+                                 value={customThresholdInput}
+                                 onChange={(e) => setCustomThresholdInput(e.target.value)}
+                                 placeholder="e.g. 25"
+                                 className="flex-1 p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+                             />
+                             <button
+                                 onClick={() => {
+                                     const val = parseInt(customThresholdInput);
+                                     if (val > 0) {
+                                         setUserSettings({ ...userSettings, sedentaryThreshold: val });
+                                         setShowThresholdSettings(false);
+                                         setCustomThresholdInput('');
+                                     }
+                                 }}
+                                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700"
+                             >
+                                 {t.common.save}
+                             </button>
+                         </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
         <div className="flex justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6">
             <div className="text-center w-1/3 border-r border-gray-100">
                 <p className="font-bold text-lg text-indigo-600">{userStats.currentStreak}</p>
@@ -1304,6 +1364,23 @@ const App: React.FC = () => {
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
+            {/* NEW: Sedentary Threshold Setting */}
+            <button 
+                onClick={() => setShowThresholdSettings(true)}
+                className="w-full flex justify-between items-center p-4 border-b border-gray-50 active:bg-gray-50"
+            >
+                <div className="flex items-center">
+                    <Clock className="text-green-500 mr-3" size={18} />
+                    <span className="text-sm font-medium text-gray-700">{t.profile.reminderInterval}</span>
+                </div>
+                <div className="flex items-center">
+                    <span className="text-xs text-gray-400 mr-2 font-medium bg-gray-100 px-2 py-1 rounded">
+                        {userSettings.sedentaryThreshold} {t.profile.minutes}
+                    </span>
+                    <ChevronRight size={16} className="text-gray-300" />
+                </div>
+            </button>
+
             <button 
               onClick={() => setShowDNDManager(true)}
               className="w-full flex justify-between items-center p-4 border-b border-gray-50 active:bg-gray-50"
