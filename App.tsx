@@ -32,7 +32,7 @@ const AboutModal = ({ isOpen, onClose, lang }: { isOpen: boolean; onClose: () =>
                      <img 
                         src="/logo.png" 
                         alt="SitClock" 
-                        // Standardized 100x100 size without padding
+                        // Standardized 100x100 size without padding or rotation
                         className="w-[100px] h-[100px] rounded-2xl flex items-center justify-center shadow-lg mb-3 object-cover bg-white"
                         onError={(e) => { e.currentTarget.style.display = 'none'; }}
                      />

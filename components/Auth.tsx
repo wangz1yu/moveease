@@ -138,10 +138,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin, lang }) => {
           <img 
             src="/logo.png" 
             alt="SitClock" 
-            // Removed -rotate-6 and ensured 100x100 size without weird padding
+            // Standardized 100x100 size without rotation
             className="w-[100px] h-[100px] rounded-2xl mx-auto shadow-lg shadow-indigo-200 mb-4 object-cover bg-white" 
             onError={(e) => {
-              // Fallback if image fails
+              // Fallback if image fails: show a placeholder box instead of hiding completely
               e.currentTarget.style.display = 'none';
               const fallback = document.getElementById('logo-fallback');
               if (fallback) fallback.style.display = 'flex';

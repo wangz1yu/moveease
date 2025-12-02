@@ -8,21 +8,31 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+// --- CONFIGURATION ---
+// ⚠️⚠️⚠️ 必须在这里填入您的 Google Gemini API Key ⚠️⚠️⚠️
+// 否则微信小程序和网页版的“生成计划”功能都将无法使用
+const GOOGLE_API_KEY = process.env.API_KEY || "YOUR_REAL_API_KEY_HERE"; 
+
 const app = express();
 const PORT = 3000;
 
+// Dynamic import for Google GenAI (ESM package)
+let GoogleGenAI, Type;
+
+// 尝试加载 AI 库，如果没安装也不要让整个服务器崩溃
+import('@google/genai').then(m => {
+    GoogleGenAI = m.GoogleGenAI;
+    Type = m.Type;
+    console.log("✅ Google GenAI library loaded successfully.");
+}).catch(err => {
+    console.error("⚠️ WARNING: Failed to load '@google/genai'.");
+    console.error("⚠️ Please run 'npm install @google/genai' on your server.");
+    console.error("⚠️ AI features (Workout Generator) will NOT work until this is fixed.");
+});
+
 // 1. Middleware
 app.use(cors({
-    origin: [
-        'http://localhost:5173', 
-        'http://localhost:4173', 
-        'http://sitclock.com', 
-        'https://sitclock.com',
-        'http://www.sitclock.com', 
-        'https://www.sitclock.com',
-        'http://203.248.94.98',
-        'http://203.248.94.98:3000'
-    ],
+    origin: true, // Allow all origins for simplicity in hybrid app (Web + MiniProgram)
     credentials: true
 }));
 app.use(bodyParser.json());
@@ -167,7 +177,7 @@ db.getConnection(async (err, connection) => {
 // 4. API Routes
 
 app.get('/', (req, res) => {
-  res.send('✅ SitClock Backend is running! v1.5 (Sync & Timer)');
+  res.send('✅ SitClock Backend is running! v1.7.1 (WeChat MP Ready)');
 });
 
 // --- Upload ---
@@ -175,6 +185,7 @@ app.post('/api/upload-avatar', upload.single('avatar'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
     }
+    // Return full URL for Mini Program compatibility if needed, currently relative
     const fileUrl = `/api/uploads/${req.file.filename}`;
     res.json({ url: fileUrl });
 });
@@ -223,14 +234,28 @@ app.post('/api/update-profile', (req, res) => {
   });
 });
 
+// --- Announcements ---
+app.get('/api/announcements', (req, res) => {
+    db.query('SELECT * FROM announcements ORDER BY created_at DESC LIMIT 10', (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results);
+    });
+});
+
+app.post('/api/announcements', (req, res) => {
+    const { title, content } = req.body;
+    db.query('INSERT INTO announcements (title, content) VALUES (?, ?)', [title, content], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: 'Posted' });
+    });
+});
+
 // --- Stats & Sync ---
 
-// [GET] User Stats + Profile + Timer
 app.get('/api/stats', (req, res) => {
     const { userId } = req.query;
     if(!userId) return res.status(400).json({error: "Missing userId"});
 
-    // JOIN with users table to get latest profile info
     const statsQuery = `
         SELECT us.*, u.username, u.avatar_url 
         FROM user_stats us 
@@ -241,7 +266,6 @@ app.get('/api/stats', (req, res) => {
     db.query(statsQuery, [userId], (err, statsResults) => {
         if(err) return res.status(500).json({error: err.message});
         
-        // Use DATE_FORMAT to enforce YYYY-MM-DD string format
         const activityQuery = `
             SELECT 
                 id, user_id, 
@@ -254,10 +278,6 @@ app.get('/api/stats', (req, res) => {
 
         db.query(activityQuery, [userId], (err, dailyResults) => {
              if(err) return res.status(500).json({error: err.message});
-             
-             // If user exists in users table but not in user_stats yet, we might get empty statsResults
-             // In that case, we should check users table separately or just return default stats but valid user info?
-             // For simplicity, if statsResults is empty, we fetch user info separately
              
              if (statsResults.length === 0) {
                  db.query('SELECT username, avatar_url FROM users WHERE id = ?', [userId], (err, userRes) => {
@@ -281,13 +301,9 @@ app.get('/api/stats', (req, res) => {
     });
 });
 
-// [POST] Sync Stats
 app.post('/api/stats', (req, res) => {
     const { userId, totalWorkouts, currentStreak, lastWorkoutDate, todaySedentaryMinutes, todayBreaks } = req.body;
     
-    // Check if record exists first to handle INSERT vs UPDATE logic gracefully if needed, 
-    // but ON DUPLICATE KEY UPDATE is standard.
-    // Note: We do NOT update timer columns here, they have their own endpoint.
     const statsQuery = `
         INSERT INTO user_stats (user_id, total_workouts, current_streak, last_workout_date)
         VALUES (?, ?, ?, ?)
@@ -330,7 +346,6 @@ app.post('/api/stats', (req, res) => {
     });
 });
 
-// [POST] Sync Timer
 app.post('/api/timer', (req, res) => {
     const { userId, endAt, duration } = req.body;
     
@@ -348,22 +363,73 @@ app.post('/api/timer', (req, res) => {
     });
 });
 
-// --- Announcements ---
-app.get('/api/announcements', (req, res) => {
-  db.query('SELECT * FROM announcements ORDER BY created_at DESC LIMIT 50', (err, results) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(results);
-  });
-});
+// --- AI Generation Proxy (REQUIRED for WeChat Mini Program) ---
+app.post('/api/generate-workout', async (req, res) => {
+    const { focusArea, language } = req.body;
+    
+    if (!GoogleGenAI) {
+        return res.status(500).json({ error: "AI Service Not Available: Server missing @google/genai package." });
+    }
 
-app.post('/api/announcements', (req, res) => {
-  const { title, content } = req.body;
-  db.query('INSERT INTO announcements (title, content) VALUES (?, ?)', [title, content], (err, result) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.status(201).json({ message: 'Created', id: result.insertId });
-  });
+    try {
+        const ai = new GoogleGenAI({ apiKey: GOOGLE_API_KEY });
+        
+        const model = "gemini-2.5-flash";
+        const langInstruction = language === 'zh' ? 'in Chinese (Simplified)' : 'in English';
+        
+        const prompt = `
+          Create a short "Micro-Fitness" workout plan for an office worker focusing SPECIFICALLY on: ${focusArea}.
+          Generate 3 simple exercises that can be done in an office chair or standing at a desk.
+          Each exercise should take about 30-60 seconds.
+          Provide the response exclusively in raw JSON format (no markdown code blocks).
+          The content (name, description) must be written ${langInstruction}.
+          IMPORTANT: The 'category' field for each exercise MUST be exactly "${focusArea}".
+        `;
+    
+        const response = await ai.models.generateContent({
+          model: model,
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  name: { type: Type.STRING },
+                  duration: { type: Type.NUMBER, description: "Duration in seconds" },
+                  category: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  imageUrl: { type: Type.STRING, description: "Use a placeholder URL like https://picsum.photos/400/300?random=X" }
+                },
+                required: ["id", "name", "duration", "description", "category"]
+              }
+            }
+          }
+        });
+    
+        let rawText = response.text || "[]";
+        rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const exercises = JSON.parse(rawText);
+        
+        // Patch images
+        const exercisesWithImages = exercises.map((ex, index) => ({
+            ...ex,
+            imageUrl: `https://picsum.photos/400/300?random=${Date.now() + index}`
+        }));
+    
+        res.json(exercisesWithImages);
+
+    } catch (error) {
+        console.error("AI Generation Error:", error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 SitClock Server running on port ${PORT}`);
+    console.log(`------------------------------------------------`);
+    console.log(`🚀 SitClock 后端服务已启动 (SitClock Backend Started)`);
+    console.log(`📡 监听地址: http://www.sitclock.com:${PORT}`);
+    console.log(`------------------------------------------------`);
 });
