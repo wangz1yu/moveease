@@ -51,6 +51,9 @@ export const TRANSLATIONS = {
       setReminder: 'Quick Timer',
       quickTimer: 'Reminder',
       timerFinished: 'Time is up!',
+      custom: 'Custom...',
+      enterMinutes: 'Minutes',
+      start: 'Start',
     },
     workouts: {
       title: 'Micro-Fitness',
@@ -189,6 +192,9 @@ export const TRANSLATIONS = {
       setReminder: '定时提醒',
       quickTimer: '倒计时',
       timerFinished: '时间到了！',
+      custom: '自定义...',
+      enterMinutes: '输入分钟数',
+      start: '开始',
     },
     workouts: {
       title: '微健身',

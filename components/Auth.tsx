@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { User, Language } from '../types';
 import { TRANSLATIONS } from '../constants';
@@ -134,9 +135,11 @@ const Auth: React.FC<AuthProps> = ({ onLogin, lang }) => {
       <div className="w-full max-w-sm">
         {/* Logo/Header */}
         <div className="text-center mb-8">
-          <div className="w-20 h-20 bg-indigo-600 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-indigo-200 mb-4 transform -rotate-6">
-            <span className="text-4xl">🏃</span>
-          </div>
+          <img 
+            src="/logo.png" 
+            alt="SitClock" 
+            className="w-[100px] h-[100px] rounded-2xl mx-auto shadow-lg shadow-indigo-200 mb-4 transform -rotate-6 object-cover bg-white" 
+          />
           <h1 className="text-2xl font-bold text-gray-900">{t.welcome}</h1>
           <p className="text-gray-500">{t.subtitle}</p>
         </div>

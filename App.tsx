@@ -29,9 +29,11 @@ const AboutModal = ({ isOpen, onClose, lang }: { isOpen: boolean; onClose: () =>
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
             <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl z-10 p-6 animate-in zoom-in-95">
                 <div className="flex flex-col items-center mb-4">
-                     <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg mb-3">
-                        <span className="text-3xl">🏃</span>
-                     </div>
+                     <img 
+                        src="/logo.png" 
+                        alt="SitClock" 
+                        className="w-[80px] h-[80px] rounded-2xl flex items-center justify-center shadow-lg mb-3 object-cover bg-white"
+                     />
                      <h2 className="text-xl font-bold text-gray-900">SitClock</h2>
                      <p className="text-sm text-gray-500">{t.common.version} 1.4.0</p>
                 </div>
@@ -82,6 +84,10 @@ const App: React.FC = () => {
   const [todayAccumulatedMinutes, setTodayAccumulatedMinutes] = useState(0); // Confirmed/Saved minutes for today
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [showTimerMenu, setShowTimerMenu] = useState(false); // Quick Reminder Menu
+  
+  // Custom Timer State
+  const [customTimerInput, setCustomTimerInput] = useState('');
+  const [showCustomTimerInput, setShowCustomTimerInput] = useState(false);
   
   // Quick Timer / Countdown State
   // [NEW] Use End Timestamp for sync
@@ -749,7 +755,7 @@ const App: React.FC = () => {
             <div className="flex items-center space-x-3">
                 {/* Quick Timer Button */}
                 <button 
-                  onClick={() => setShowTimerMenu(!showTimerMenu)}
+                  onClick={() => { setShowTimerMenu(!showTimerMenu); setShowCustomTimerInput(false); }}
                   className={`p-2 rounded-full shadow-sm border hover:text-indigo-600 active:scale-95 transition-all relative ${isQuickTimerActive ? 'bg-red-50 text-red-500 border-red-200 animate-pulse' : 'bg-white text-gray-500 border-gray-100'}`}
                 >
                     <AlarmClock size={20} />
@@ -771,37 +777,83 @@ const App: React.FC = () => {
                 <div className="absolute top-14 right-0 z-50 bg-white rounded-xl shadow-xl border border-gray-100 p-2 w-48 animate-in fade-in slide-in-from-top-2">
                     <div className="flex justify-between items-center px-2 mb-2">
                         <span className="text-xs font-bold text-gray-500 uppercase">{t.home.setReminder}</span>
-                        <button onClick={() => setShowTimerMenu(false)}><X size={14} className="text-gray-400"/></button>
+                        <button onClick={() => { setShowTimerMenu(false); setShowCustomTimerInput(false); }}><X size={14} className="text-gray-400"/></button>
                     </div>
-                    {[30, 45, 60, 90].map(min => (
-                        <button
-                            key={min}
-                            onClick={() => {
-                                const durationSec = min * 60;
-                                const endAt = Date.now() + (durationSec * 1000);
-                                setQuickTimerEndAt(endAt);
-                                setQuickTimerTotalDuration(durationSec);
-                                setQuickTimerLeft(durationSec);
-                                syncTimer(endAt, durationSec); // Sync to server
-                                setShowTimerMenu(false);
-                            }}
-                            className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 text-gray-700"
-                        >
-                            {min} min
-                        </button>
-                    ))}
-                    <button
-                        onClick={() => {
-                            setQuickTimerEndAt(null);
-                            setQuickTimerTotalDuration(0);
-                            setQuickTimerLeft(0);
-                            syncTimer(0, 0); // Clear on server
-                            setShowTimerMenu(false);
-                        }}
-                        className="w-full text-left px-3 py-2 rounded-lg text-sm font-bold text-red-500 hover:bg-red-50"
-                    >
-                        {t.common.cancel}
-                    </button>
+                    {showCustomTimerInput ? (
+                         <div className="px-2 pb-2">
+                             <input 
+                                 type="number" 
+                                 value={customTimerInput}
+                                 onChange={(e) => setCustomTimerInput(e.target.value)}
+                                 placeholder={t.home.enterMinutes}
+                                 className="w-full mb-2 p-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                                 autoFocus
+                             />
+                             <button
+                                 onClick={() => {
+                                     const min = parseInt(customTimerInput);
+                                     if (min > 0) {
+                                          const durationSec = min * 60;
+                                          const endAt = Date.now() + (durationSec * 1000);
+                                          setQuickTimerEndAt(endAt);
+                                          setQuickTimerTotalDuration(durationSec);
+                                          setQuickTimerLeft(durationSec);
+                                          syncTimer(endAt, durationSec);
+                                          setShowTimerMenu(false);
+                                          setShowCustomTimerInput(false);
+                                          setCustomTimerInput('');
+                                     }
+                                 }}
+                                 className="w-full bg-indigo-600 text-white rounded-lg py-2 text-sm font-bold mb-2 hover:bg-indigo-700"
+                             >
+                                 {t.home.start}
+                             </button>
+                             <button
+                                 onClick={() => setShowCustomTimerInput(false)}
+                                 className="w-full text-gray-500 text-xs hover:underline"
+                             >
+                                 {t.common.back}
+                             </button>
+                         </div>
+                    ) : (
+                        <>
+                            {[30, 45, 60, 90].map(min => (
+                                <button
+                                    key={min}
+                                    onClick={() => {
+                                        const durationSec = min * 60;
+                                        const endAt = Date.now() + (durationSec * 1000);
+                                        setQuickTimerEndAt(endAt);
+                                        setQuickTimerTotalDuration(durationSec);
+                                        setQuickTimerLeft(durationSec);
+                                        syncTimer(endAt, durationSec); // Sync to server
+                                        setShowTimerMenu(false);
+                                    }}
+                                    className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 text-gray-700"
+                                >
+                                    {min} min
+                                </button>
+                            ))}
+                            <button
+                                onClick={() => setShowCustomTimerInput(true)}
+                                className="w-full text-left px-3 py-2 rounded-lg text-sm font-bold text-indigo-600 hover:bg-indigo-50"
+                            >
+                                {t.home.custom}
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setQuickTimerEndAt(null);
+                                    setQuickTimerTotalDuration(0);
+                                    setQuickTimerLeft(0);
+                                    syncTimer(0, 0); // Clear on server
+                                    setShowTimerMenu(false);
+                                }}
+                                className="w-full text-left px-3 py-2 rounded-lg text-sm font-bold text-red-500 hover:bg-red-50"
+                            >
+                                {t.common.cancel}
+                            </button>
+                        </>
+                    )}
                 </div>
             )}
         </header>
