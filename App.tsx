@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Navigation from './components/Navigation';
 import WorkoutCard from './components/WorkoutCard';
@@ -32,7 +33,7 @@ const AboutModal = ({ isOpen, onClose, lang }: { isOpen: boolean; onClose: () =>
                         <span className="text-3xl">🏃</span>
                      </div>
                      <h2 className="text-xl font-bold text-gray-900">SitClock</h2>
-                     <p className="text-sm text-gray-500">{t.common.version} 1.3.0</p>
+                     <p className="text-sm text-gray-500">{t.common.version} 1.4.0</p>
                 </div>
                 <div className="text-sm text-gray-600 space-y-2 text-center mb-6">
                     <p>{lang === 'zh' ? 'SitClock 致力于通过智能提醒和微健身课程，帮助久坐人群改善健康状况。' : 'SitClock is dedicated to helping sedentary people improve their health through smart reminders and micro-fitness courses.'}</p>
@@ -83,7 +84,9 @@ const App: React.FC = () => {
   const [showTimerMenu, setShowTimerMenu] = useState(false); // Quick Reminder Menu
   
   // Quick Timer / Countdown State
-  const [quickTimerTotal, setQuickTimerTotal] = useState(0);
+  // [NEW] Use End Timestamp for sync
+  const [quickTimerEndAt, setQuickTimerEndAt] = useState<number | null>(null);
+  const [quickTimerTotalDuration, setQuickTimerTotalDuration] = useState(0);
   const [quickTimerLeft, setQuickTimerLeft] = useState(0);
   
   // Initialize with empty 7 days to avoid chart errors
@@ -139,19 +142,72 @@ const App: React.FC = () => {
           console.error("Sync failed", e);
       }
   };
+  
+  // Sync Timer to server
+  const syncTimer = async (endAt: number, duration: number) => {
+      if (!currentUser) return;
+      try {
+          await fetch('/api/timer', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  userId: currentUser.id,
+                  endAt: endAt,
+                  duration: duration
+              })
+          });
+      } catch (e) {
+          console.error("Timer sync failed", e);
+      }
+  };
 
   const migrateLegacyStats = async (stats: UserStats, todayMinutes: number, todayBreaks: number) => {
       console.log("Migrating legacy stats to DB...");
       await syncStats(stats, todayMinutes, todayBreaks);
   };
 
-  // Fetch stats from server (With Migration Logic)
+  // Fetch stats from server (With Migration Logic & Profile Sync & Timer Sync)
   const fetchStats = async (userId: string) => {
       try {
           const res = await fetch(`/api/stats?userId=${userId}`);
           if (res.ok) {
               const data = await res.json();
               
+              // === Profile Sync Logic ===
+              // Detect if avatar/name updated on another device
+              if (data.stats.username || data.stats.avatar_url) {
+                  const remoteName = data.stats.username;
+                  const remoteAvatar = data.stats.avatar_url;
+                  
+                  if (currentUser && (remoteName !== currentUser.name || remoteAvatar !== currentUser.avatar)) {
+                       console.log("Detect profile change, syncing...");
+                       const updatedUser = { ...currentUser, name: remoteName, avatar: remoteAvatar };
+                       setCurrentUser(updatedUser);
+                       localStorage.setItem(SESSION_KEY, JSON.stringify(updatedUser));
+                  }
+              }
+
+              // === Timer Sync Logic ===
+              if (data.stats.timer_end_at > 0) {
+                   const serverEndAt = Number(data.stats.timer_end_at);
+                   const serverDuration = Number(data.stats.timer_duration);
+                   
+                   // Only update if significantly different to avoid jitter during countdown
+                   // or if local state is null
+                   if (quickTimerEndAt !== serverEndAt) {
+                       setQuickTimerEndAt(serverEndAt);
+                       setQuickTimerTotalDuration(serverDuration);
+                       // Immediate calc
+                       const now = Date.now();
+                       const remaining = Math.max(0, Math.floor((serverEndAt - now) / 1000));
+                       setQuickTimerLeft(remaining);
+                   }
+              } else if (data.stats.timer_end_at === 0 && quickTimerEndAt !== null) {
+                  // Timer cleared remotely
+                  setQuickTimerEndAt(null);
+                  setQuickTimerLeft(0);
+              }
+
               // === Data Migration Logic ===
               if ((!data.stats || data.stats.total_workouts === 0) && userStats.totalWorkouts > 0) {
                    const todayIndex = weeklyStats.length - 1;
@@ -242,14 +298,37 @@ const App: React.FC = () => {
     const quoteIndex = new Date().getDate() % INSPIRATIONAL_QUOTES.length;
     setDailyQuote(INSPIRATIONAL_QUOTES[quoteIndex] || INSPIRATIONAL_QUOTES[0]);
 
-  }, [currentUser]); 
+  }, [currentUser?.id]); // Only re-run if ID changes, ignore object ref changes from profile sync
+  
+  // --- AUTO-SYNC / POLLING ---
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const sync = () => {
+        // Only fetch if tab is active to save bandwidth/battery
+        if (document.visibilityState === 'visible') {
+            fetchStats(currentUser.id);
+        }
+    };
+
+    // 1. Sync when tab becomes visible
+    document.addEventListener('visibilitychange', sync);
+
+    // 2. Poll every 30 seconds
+    const intervalId = setInterval(sync, 30000);
+
+    return () => {
+        document.removeEventListener('visibilitychange', sync);
+        clearInterval(intervalId);
+    };
+  }, [currentUser?.id]);
 
   // Persist Settings
   useEffect(() => {
     if (currentUser) {
         localStorage.setItem(getUserKey(SETTINGS_KEY), JSON.stringify(userSettings));
     }
-  }, [userSettings, currentUser]);
+  }, [userSettings, currentUser?.id]);
 
   const lang = userSettings.language;
   const t = TRANSLATIONS[lang];
@@ -354,28 +433,36 @@ const App: React.FC = () => {
       }));
     }
     return () => clearInterval(interval);
-  }, [isMonitoring, isDNDActive, activeExercise, sedentaryTime, currentUser]);
+  }, [isMonitoring, isDNDActive, activeExercise, sedentaryTime, currentUser?.id]);
 
-  // Quick Timer Logic (Count DOWN)
+  // Quick Timer Logic (Count DOWN with Sync)
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
-    if (quickTimerLeft > 0 && !isDNDActive && !activeExercise) {
+    
+    // Check if we have an active timer synced from server
+    if (quickTimerEndAt && !isDNDActive && !activeExercise) {
         interval = setInterval(() => {
-            setQuickTimerLeft(prev => {
-                if (prev <= 1) {
-                    // Timer Finished
-                    clearInterval(interval);
-                    setCelebration({ show: true, message: t.home.timerFinished });
-                    setTimeout(() => setCelebration({ show: false, message: '' }), 3000);
-                    setQuickTimerTotal(0); // Reset UI
-                    return 0;
-                }
-                return prev - 1;
-            });
+            const now = Date.now();
+            const remaining = Math.max(0, Math.floor((quickTimerEndAt - now) / 1000));
+            
+            setQuickTimerLeft(remaining);
+
+            if (remaining <= 0) {
+                // Timer Finished
+                clearInterval(interval);
+                setCelebration({ show: true, message: t.home.timerFinished });
+                setTimeout(() => setCelebration({ show: false, message: '' }), 3000);
+                
+                // Reset State & Sync Clear to DB
+                setQuickTimerEndAt(null);
+                setQuickTimerTotalDuration(0);
+                setQuickTimerLeft(0);
+                syncTimer(0, 0); // Clear timer on server
+            }
         }, 1000);
     }
     return () => clearInterval(interval);
-  }, [quickTimerLeft, isDNDActive, activeExercise]);
+  }, [quickTimerEndAt, isDNDActive, activeExercise]);
 
   // Combined logic to reset timer AND save data (fix disappearing bug)
   const resetTimer = (incrementBreak = false) => {
@@ -504,6 +591,8 @@ const App: React.FC = () => {
     setWeeklyStats([]);
     setTodayAccumulatedMinutes(0);
     setUserStats({ totalWorkouts: 0, currentStreak: 0, lastWorkoutDate: null });
+    setQuickTimerEndAt(null);
+    setQuickTimerLeft(0);
   };
 
   // --- Profile Update with Image Upload ---
@@ -597,10 +686,8 @@ const App: React.FC = () => {
     const radiusOuter = 120;
     const circumferenceOuter = 2 * Math.PI * radiusOuter;
     
-    // To drain: offsetOuter = (quickProgress/100) * circumferenceOuter ?? No.
-    // Let's make it drain: offset goes from 0 to circumference.
-    // Progress: timeLeft / Total. 100% -> 0%.
-    const drainProgress = quickTimerTotal > 0 ? (quickTimerLeft / quickTimerTotal) * 100 : 0;
+    // Drain progress based on synced Duration and Left time
+    const drainProgress = quickTimerTotalDuration > 0 ? (quickTimerLeft / quickTimerTotalDuration) * 100 : 0;
     const offsetDrain = circumferenceOuter - (drainProgress / 100) * circumferenceOuter;
 
     return (
@@ -690,8 +777,12 @@ const App: React.FC = () => {
                         <button
                             key={min}
                             onClick={() => {
-                                setQuickTimerTotal(min * 60);
-                                setQuickTimerLeft(min * 60);
+                                const durationSec = min * 60;
+                                const endAt = Date.now() + (durationSec * 1000);
+                                setQuickTimerEndAt(endAt);
+                                setQuickTimerTotalDuration(durationSec);
+                                setQuickTimerLeft(durationSec);
+                                syncTimer(endAt, durationSec); // Sync to server
                                 setShowTimerMenu(false);
                             }}
                             className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 text-gray-700"
@@ -701,8 +792,10 @@ const App: React.FC = () => {
                     ))}
                     <button
                         onClick={() => {
-                            setQuickTimerTotal(0);
+                            setQuickTimerEndAt(null);
+                            setQuickTimerTotalDuration(0);
                             setQuickTimerLeft(0);
+                            syncTimer(0, 0); // Clear on server
                             setShowTimerMenu(false);
                         }}
                         className="w-full text-left px-3 py-2 rounded-lg text-sm font-bold text-red-500 hover:bg-red-50"

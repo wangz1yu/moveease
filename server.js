@@ -19,7 +19,9 @@ app.use(cors({
         'http://sitclock.com', 
         'https://sitclock.com',
         'http://www.sitclock.com', 
-        'https://www.sitclock.com'
+        'https://www.sitclock.com',
+        'http://203.248.94.98',
+        'http://203.248.94.98:3000'
     ],
     credentials: true
 }));
@@ -66,15 +68,27 @@ const db = mysql.createPool({
   timezone: '+08:00' // Ensure China Standard Time
 });
 
+// Helper to safely run queries
+const runQuery = (query, params = []) => {
+    return new Promise((resolve, reject) => {
+        db.query(query, params, (err, results) => {
+            if (err) return reject(err);
+            resolve(results);
+        });
+    });
+};
+
 // 3. Init: Test Connection & Create Tables
-db.getConnection((err, connection) => {
+db.getConnection(async (err, connection) => {
   if (err) {
     console.error('❌ CRITICAL: Cannot connect to DB.', err.message);
     return;
   }
   
   console.log('✅ DB Connected (Localhost Mode)!');
+  connection.release();
 
+  // Define Tables
   const createUsersTable = `
     CREATE TABLE IF NOT EXISTS users (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -116,32 +130,44 @@ db.getConnection((err, connection) => {
     )
   `;
 
-  connection.query(createUsersTable, (err) => {
-    if (err) console.error('Users table error:', err.message);
-    else console.log('✅ users table ready');
-  });
+  try {
+      await runQuery(createUsersTable);
+      console.log('✅ users table ready');
+      await runQuery(createAnnouncementsTable);
+      console.log('✅ announcements table ready');
+      await runQuery(createUserStatsTable);
+      console.log('✅ user_stats table ready');
+      await runQuery(createDailyActivitiesTable);
+      console.log('✅ daily_activities table ready');
 
-  connection.query(createAnnouncementsTable, (err) => {
-    if (err) console.error('Announcements table error:', err.message);
-    else console.log('✅ announcements table ready');
-  });
+      // --- AUTO MIGRATION: Add timer columns if they don't exist ---
+      try {
+          await runQuery(`
+            SELECT count(*) FROM information_schema.COLUMNS 
+            WHERE (TABLE_SCHEMA = 'moveease_db') 
+            AND (TABLE_NAME = 'user_stats') 
+            AND (COLUMN_NAME = 'timer_end_at')
+          `).then(async (results) => {
+              if (results[0]['count(*)'] === 0) {
+                  console.log('🔄 Migrating: Adding timer_end_at column...');
+                  await runQuery("ALTER TABLE user_stats ADD COLUMN timer_end_at BIGINT DEFAULT 0");
+                  await runQuery("ALTER TABLE user_stats ADD COLUMN timer_duration INT DEFAULT 0");
+                  console.log('✅ Migration complete: Timer columns added.');
+              }
+          });
+      } catch (migErr) {
+          console.error("Migration warning:", migErr.message);
+      }
 
-  connection.query(createUserStatsTable, (err) => {
-    if (err) console.error('UserStats table error:', err.message);
-    else console.log('✅ user_stats table ready');
-  });
-
-  connection.query(createDailyActivitiesTable, (err) => {
-    if (err) console.error('DailyActivities table error:', err.message);
-    else console.log('✅ daily_activities table ready');
-    connection.release();
-  });
+  } catch (e) {
+      console.error("Table initialization failed:", e);
+  }
 });
 
 // 4. API Routes
 
 app.get('/', (req, res) => {
-  res.send('✅ SitClock Backend is running! v1.3 (Dual Timer)');
+  res.send('✅ SitClock Backend is running! v1.5 (Sync & Timer)');
 });
 
 // --- Upload ---
@@ -199,15 +225,23 @@ app.post('/api/update-profile', (req, res) => {
 
 // --- Stats & Sync ---
 
-// [GET] User Stats
+// [GET] User Stats + Profile + Timer
 app.get('/api/stats', (req, res) => {
     const { userId } = req.query;
     if(!userId) return res.status(400).json({error: "Missing userId"});
 
-    db.query('SELECT * FROM user_stats WHERE user_id = ?', [userId], (err, statsResults) => {
+    // JOIN with users table to get latest profile info
+    const statsQuery = `
+        SELECT us.*, u.username, u.avatar_url 
+        FROM user_stats us 
+        JOIN users u ON us.user_id = u.id 
+        WHERE us.user_id = ?
+    `;
+
+    db.query(statsQuery, [userId], (err, statsResults) => {
         if(err) return res.status(500).json({error: err.message});
         
-        // [FIX] Use DATE_FORMAT to enforce YYYY-MM-DD string format to match frontend logic strictly
+        // Use DATE_FORMAT to enforce YYYY-MM-DD string format
         const activityQuery = `
             SELECT 
                 id, user_id, 
@@ -221,10 +255,28 @@ app.get('/api/stats', (req, res) => {
         db.query(activityQuery, [userId], (err, dailyResults) => {
              if(err) return res.status(500).json({error: err.message});
              
-             res.json({
-                 stats: statsResults[0] || { total_workouts: 0, current_streak: 0, last_workout_date: null },
-                 activity: dailyResults
-             });
+             // If user exists in users table but not in user_stats yet, we might get empty statsResults
+             // In that case, we should check users table separately or just return default stats but valid user info?
+             // For simplicity, if statsResults is empty, we fetch user info separately
+             
+             if (statsResults.length === 0) {
+                 db.query('SELECT username, avatar_url FROM users WHERE id = ?', [userId], (err, userRes) => {
+                     const userInfo = userRes[0] || {};
+                     res.json({
+                        stats: { 
+                            total_workouts: 0, current_streak: 0, last_workout_date: null,
+                            timer_end_at: 0, timer_duration: 0,
+                            username: userInfo.username, avatar_url: userInfo.avatar_url
+                        },
+                        activity: dailyResults
+                     });
+                 });
+             } else {
+                 res.json({
+                     stats: statsResults[0],
+                     activity: dailyResults
+                 });
+             }
         });
     });
 });
@@ -233,6 +285,9 @@ app.get('/api/stats', (req, res) => {
 app.post('/api/stats', (req, res) => {
     const { userId, totalWorkouts, currentStreak, lastWorkoutDate, todaySedentaryMinutes, todayBreaks } = req.body;
     
+    // Check if record exists first to handle INSERT vs UPDATE logic gracefully if needed, 
+    // but ON DUPLICATE KEY UPDATE is standard.
+    // Note: We do NOT update timer columns here, they have their own endpoint.
     const statsQuery = `
         INSERT INTO user_stats (user_id, total_workouts, current_streak, last_workout_date)
         VALUES (?, ?, ?, ?)
@@ -242,7 +297,6 @@ app.post('/api/stats', (req, res) => {
         last_workout_date = VALUES(last_workout_date)
     `;
     
-    // YYYY-MM-DD from frontend logic
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }); 
     
     const activityQuery = `
@@ -273,6 +327,24 @@ app.post('/api/stats', (req, res) => {
                  });
             });
         });
+    });
+});
+
+// [POST] Sync Timer
+app.post('/api/timer', (req, res) => {
+    const { userId, endAt, duration } = req.body;
+    
+    const query = `
+        INSERT INTO user_stats (user_id, timer_end_at, timer_duration)
+        VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE 
+        timer_end_at = VALUES(timer_end_at),
+        timer_duration = VALUES(timer_duration)
+    `;
+
+    db.query(query, [userId, endAt, duration], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: "Timer saved" });
     });
 });
 
