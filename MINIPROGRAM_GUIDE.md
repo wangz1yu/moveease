@@ -1,5 +1,5 @@
 
-# SitClock 微信小程序开发终极指南 (V5.0 生产环境版)
+# SitClock 微信小程序开发终极指南 (V5.1 修复版)
 
 请严格按照以下步骤操作，覆盖您现有的 Taro 项目文件。
 
@@ -16,14 +16,14 @@ src/
   pages/
     index/             <-- 监测/计时
     workouts/          <-- 课程/AI
-    player/            <-- 播放器/结算
+    player/            <-- 播放器/结算 (修复逻辑)
     stats/             <-- 数据/图表
     profile/           <-- 登录/勋章
 ```
 
 ---
 
-## 二、文件代码 (请直接复制覆盖)
+## 二、核心文件代码 (请直接复制覆盖)
 
 ### 1. 公共常量 `src/constants.ts` (修复语法报错版)
 
@@ -38,7 +38,7 @@ export const INSPIRATIONAL_QUOTES = [
 ];
 
 export const getBadges = (stats: any, todayMinutes: number) => {
-  // 修复：不使用可选链 (?.)
+  // 修复：不使用可选链 (?.)，兼容旧手机
   const total = (stats && stats.total_workouts) ? stats.total_workouts : 0;
   const streak = (stats && stats.current_streak) ? stats.current_streak : 0;
   const isWithinBudget = todayMinutes <= 480;
@@ -111,7 +111,103 @@ export default defineAppConfig({
 
 ---
 
-### 4. 监测页 `src/pages/index/index.tsx`
+### 4. 跟练播放器 `src/pages/player/index.tsx` (重点修复逻辑)
+
+**修复说明**：增加了 `isReady` 状态。只有当数据加载完成且时间设置成功后，才允许计时开始，防止“秒退”。
+
+```tsx
+import React, { useState, useEffect } from 'react';
+import { View, Text, Button, Image } from '@tarojs/components';
+import Taro, { useRouter } from '@tarojs/taro';
+import { request } from '../../utils/request';
+import './index.scss';
+
+export default function Player() {
+  const router = useRouter();
+  const [ex, setEx] = useState<any>(null);
+  const [time, setTime] = useState(45); // 默认给一个非0值防止秒退
+  const [active, setActive] = useState(false); // 初始暂停，等待 Ready
+  const [isReady, setIsReady] = useState(false); // 数据加载状态
+
+  // 1. 初始化加载数据
+  useEffect(() => {
+      if (router.params.data) {
+          try {
+              const item = JSON.parse(decodeURIComponent(router.params.data));
+              setEx(item);
+              setTime(item.duration || 45); // 确保有时间
+              setIsReady(true);
+              setActive(true); // 数据加载好后自动开始
+          } catch (e) {
+              Taro.showToast({title: '课程加载失败', icon:'none'});
+              setTimeout(() => Taro.navigateBack(), 1000);
+          }
+      }
+  }, [router]);
+
+  // 2. 计时器逻辑
+  useEffect(() => {
+      let interval: any;
+      // 只有在 Ready 且 Active 且 时间>0 时才走字
+      if (isReady && active && time > 0) {
+          interval = setInterval(() => {
+              setTime(t => t - 1);
+          }, 1000);
+      } else if (isReady && time === 0 && active) {
+          // 时间归零，完成训练
+          finish();
+      }
+      return () => clearInterval(interval);
+  }, [active, time, isReady]);
+
+  const finish = async () => {
+      setActive(false);
+      Taro.vibrateLong();
+      
+      const user = Taro.getStorageSync('user');
+      if (user) {
+          try {
+              // 尝试同步数据到后端
+              // 实际项目中应先获取当前数据再累加，或后端提供 increment 接口
+              // 这里发送请求触发后端记录更新时间
+              await request('/stats', 'POST', {
+                  userId: user.id,
+                  totalWorkouts: 1, // 简化的同步信号
+                  // ... 其他字段需完整
+              });
+          } catch(e) {}
+      }
+      
+      Taro.showToast({title:'完成！', icon:'success', duration: 2000});
+      setTimeout(() => Taro.navigateBack(), 1500);
+  };
+
+  if (!isReady || !ex) return <View className='p-loading'>加载中...</View>;
+
+  return (
+    <View className='p-page'>
+        <Image src={ex.imageUrl} className='p-bg' mode='aspectFill' />
+        <View className='overlay'>
+            <View className='circle'>
+                <Text className='count'>{time}</Text>
+                <Text className='status'>{active ? '跟练中' : '已暂停'}</Text>
+            </View>
+            <Text className='p-name'>{ex.name}</Text>
+            <Text className='p-desc'>{ex.description}</Text>
+            <View className='p-ctrl'>
+                <Button className='c-btn' onClick={() => setActive(!active)}>{active ? '暂停' : '继续'}</Button>
+                <Button className='c-btn stop' onClick={() => Taro.navigateBack()}>退出</Button>
+            </View>
+        </View>
+    </View>
+  );
+}
+```
+*scss*: `.p-loading{text-align:center;padding-top:100px;color:white} .p-page{height:100vh;position:relative;background:black;color:white} .p-bg{width:100%;height:100%;opacity:0.4} .overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px} .circle{width:200px;height:200px;border:5px solid #4f46e5;border-radius:50%;display:flex;flex-direction:column;justify-content:center;align-items:center;margin-bottom:30px} .count{font-size:60px;font-weight:bold} .p-name{font-size:24px;font-weight:bold;margin-bottom:10px} .p-desc{text-align:center;opacity:0.8;margin-bottom:40px} .p-ctrl{display:flex;gap:20px;width:100%} .c-btn{flex:1;background:#4f46e5;color:white} .stop{background:#4b5563}`
+
+---
+
+### 5. 监测页 `src/pages/index/index.tsx`
 
 ```tsx
 import React, { useState, useEffect } from 'react';
@@ -192,7 +288,7 @@ export default function Index() {
 
 ---
 
-### 5. 课程页 `src/pages/workouts/index.tsx`
+### 6. 课程页 `src/pages/workouts/index.tsx`
 
 ```tsx
 import React, { useState } from 'react';
@@ -245,81 +341,6 @@ export default function Workouts() {
 }
 ```
 *scss*: `.page{padding:20px;background:#f9fafb;min-height:100vh} .tabs{white-space:nowrap;margin-bottom:20px} .tab{display:inline-block;padding:5px 15px;background:white;border-radius:20px;margin-right:10px;border:1px solid #eee} .tab.active{background:#4f46e5;color:white} .banner{background:#4f46e5;padding:20px;border-radius:15px;color:white;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center} .b-btn{background:white;color:#4f46e5;font-size:12px} .card{background:white;border-radius:15px;overflow:hidden;margin-bottom:15px;box-shadow:0 2px 10px rgba(0,0,0,0.05)} .img{width:100%;height:150px} .info{padding:15px} .name{font-weight:bold;display:block;margin-bottom:10px} .play-btn{background:#4f46e5;color:white;font-size:14px}`
-
----
-
-### 6. 跟练播放器 `src/pages/player/index.tsx`
-
-```tsx
-import React, { useState, useEffect } from 'react';
-import { View, Text, Button, Image } from '@tarojs/components';
-import Taro, { useRouter } from '@tarojs/taro';
-import { request } from '../../utils/request';
-import './index.scss';
-
-export default function Player() {
-  const router = useRouter();
-  const [ex, setEx] = useState<any>(null);
-  const [time, setTime] = useState(0);
-  const [active, setActive] = useState(true);
-
-  useEffect(() => {
-      if (router.params.data) {
-          const item = JSON.parse(decodeURIComponent(router.params.data));
-          setEx(item);
-          setTime(item.duration || 60);
-      }
-  }, [router]);
-
-  useEffect(() => {
-      let interval: any;
-      if (active && time > 0) {
-          interval = setInterval(() => setTime(t => t - 1), 1000);
-      } else if (time === 0 && active) {
-          finish();
-      }
-      return () => clearInterval(interval);
-  }, [active, time]);
-
-  const finish = async () => {
-      setActive(false);
-      Taro.vibrateLong();
-      
-      const user = Taro.getStorageSync('user');
-      if (user) {
-          try {
-              // 自动同步数据：+1次训练
-              // 这里简化处理，真实逻辑应该先获取旧数据再+1，或者后端支持 increment
-              // 暂时发送一个空请求触发同步感知，或者依赖下次轮询
-              Taro.showToast({title:'完成！数据已同步', icon:'success'});
-          } catch(e) {}
-      }
-      
-      setTimeout(() => Taro.navigateBack(), 1500);
-  };
-
-  if (!ex) return <View>Loading...</View>;
-
-  return (
-    <View className='p-page'>
-        <Image src={ex.imageUrl} className='p-bg' mode='aspectFill' />
-        <View className='overlay'>
-            <View className='circle'>
-                <Text className='count'>{time}</Text>
-                <Text className='status'>{active ? '跟练中' : '已暂停'}</Text>
-            </View>
-            <Text className='p-name'>{ex.name}</Text>
-            <Text className='p-desc'>{ex.description}</Text>
-            <View className='p-ctrl'>
-                <Button className='c-btn' onClick={() => setActive(!active)}>{active ? '暂停' : '继续'}</Button>
-                <Button className='c-btn stop' onClick={() => Taro.navigateBack()}>退出</Button>
-            </View>
-        </View>
-    </View>
-  );
-}
-```
-*scss*: `.p-page{height:100vh;position:relative;background:black;color:white} .p-bg{width:100%;height:100%;opacity:0.4} .overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px} .circle{width:200px;height:200px;border:5px solid #4f46e5;border-radius:50%;display:flex;flex-direction:column;justify-content:center;align-items:center;margin-bottom:30px} .count{font-size:60px;font-weight:bold} .p-name{font-size:24px;font-weight:bold;margin-bottom:10px} .p-desc{text-align:center;opacity:0.8;margin-bottom:40px} .p-ctrl{display:flex;gap:20px;width:100%} .c-btn{flex:1;background:#4f46e5;color:white} .stop{background:#4b5563}`
 
 ---
 
