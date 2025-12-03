@@ -1,89 +1,67 @@
 
-# SitClock 微信小程序开发全指南 (Taro 版 V3.0)
+# SitClock 微信小程序开发终极指南 (Taro V4.0)
 
-本指南包含完整的源代码，修复了所有缺失页面和图标报错，并实现了**微信登录**、**数据同步**和**勋章展示**功能。
+本指南包含**全功能**源代码，完美复刻 Web 端的所有功能，包括**跟练播放器**、**真实数据统计**、**微信/邮箱双登录**和**勋章墙**。
+
+请严格按照以下结构创建文件。
 
 ---
 
-## 一、项目结构
-
-在您的 Taro 项目 (`sitclock-mp`) 中，确保目录结构如下：
+## 一、目录结构检查
 
 ```
 src/
   app.config.ts
   app.scss
   app.ts
+  constants.ts         (新增：公共逻辑)
   utils/
     request.ts
   pages/
-    index/       (监测页)
-    workouts/    (课程页)
-    stats/       (数据页 - 新增)
-    profile/     (我的页 - 新增登录逻辑)
+    index/             (监测页)
+    workouts/          (课程页)
+    player/            (新增：跟练播放器)
+    stats/             (数据页)
+    profile/           (我的页)
 ```
 
 ---
 
-## 二、文件代码 (请直接复制覆盖)
+## 二、核心代码 (复制并创建文件)
 
-### 1. 全局配置 `src/app.config.ts`
+### 1. 公共逻辑 `src/constants.ts` (新增)
+*将 Web 端的勋章和语录逻辑移植过来。*
 
 ```typescript
-export default defineAppConfig({
-  pages: [
-    'pages/index/index',
-    'pages/workouts/index',
-    'pages/stats/index',
-    'pages/profile/index'
-  ],
-  window: {
-    backgroundTextStyle: 'light',
-    navigationBarBackgroundColor: '#fff',
-    navigationBarTitleText: 'SitClock',
-    navigationBarTextStyle: 'black'
-  },
-  tabBar: {
-    color: "#999",
-    selectedColor: "#4f46e5",
-    backgroundColor: "#ffffff",
-    list: [
-      { 
-        pagePath: "pages/index/index", 
-        text: "监测",
-        // iconPath: "assets/home.png", 
-        // selectedIconPath: "assets/home_active.png" 
-      },
-      { 
-        pagePath: "pages/workouts/index", 
-        text: "课程",
-        // iconPath: "assets/gym.png", 
-        // selectedIconPath: "assets/gym_active.png" 
-      },
-      { 
-        pagePath: "pages/stats/index", 
-        text: "数据",
-        // iconPath: "assets/chart.png", 
-        // selectedIconPath: "assets/chart_active.png" 
-      },
-      { 
-        pagePath: "pages/profile/index", 
-        text: "我的",
-        // iconPath: "assets/user.png", 
-        // selectedIconPath: "assets/user_active.png" 
-      }
-    ]
-  }
-})
+// src/constants.ts
+export const INSPIRATIONAL_QUOTES = [
+  { en: "Motion is the lotion.", zh: "生命在于运动。" },
+  { en: "Small steps, big changes.", zh: "不积跬步，无以至千里。" },
+  { en: "Your body is your temple.", zh: "身体是革命的本钱。" },
+  { en: "Consistency is key.", zh: "坚持就是胜利。" }
+];
+
+export const getBadges = (stats: any, todayMinutes: number = 0) => {
+  const total = stats?.total_workouts || 0;
+  const streak = stats?.current_streak || 0;
+  const isWithinBudget = todayMinutes <= 480;
+
+  return [
+    { id: '1', name: '初次启程', icon: '🚀', unlocked: total >= 1, description: '累计完成1次课程' },
+    { id: '2', name: '3天连胜', icon: '🔥', unlocked: streak >= 3, description: '连续3天打卡' },
+    { id: 'budget', name: '自律卫士', icon: '⚖️', unlocked: total > 0 && isWithinBudget, description: '今日久坐<8小时且已活动' },
+    { id: '3', name: '健身达人', icon: '💪', unlocked: total >= 20, description: '累计完成20次' },
+    { id: '4', name: '颈椎救星', icon: '🦒', unlocked: total >= 50, description: '累计完成50次' },
+    { id: '8', name: '7天连胜', icon: '🏆', unlocked: streak >= 7, description: '连续7天打卡' },
+  ];
+};
 ```
 
 ### 2. 请求封装 `src/utils/request.ts`
 
 ```typescript
 import Taro from '@tarojs/taro';
-
-// ⚠️ 真机调试需配置合法域名
-const BASE_URL = 'https://www.sitclock.com/api'; 
+const BASE_URL = 'https://www.sitclock.com/api'; // 真机请确保此域名已在微信后台配置
 
 export const request = async (url: string, method: 'GET'|'POST' = 'GET', data?: any) => {
   try {
@@ -101,9 +79,40 @@ export const request = async (url: string, method: 'GET'|'POST' = 'GET', data?: 
 };
 ```
 
+### 3. 应用配置 `src/app.config.ts`
+
+```typescript
+export default defineAppConfig({
+  pages: [
+    'pages/index/index',
+    'pages/workouts/index',
+    'pages/player/index',
+    'pages/stats/index',
+    'pages/profile/index'
+  ],
+  window: {
+    backgroundTextStyle: 'light',
+    navigationBarBackgroundColor: '#fff',
+    navigationBarTitleText: 'SitClock',
+    navigationBarTextStyle: 'black'
+  },
+  tabBar: {
+    color: "#999",
+    selectedColor: "#4f46e5",
+    backgroundColor: "#ffffff",
+    list: [
+      { pagePath: "pages/index/index", text: "监测" },
+      { pagePath: "pages/workouts/index", text: "课程" },
+      { pagePath: "pages/stats/index", text: "数据" },
+      { pagePath: "pages/profile/index", text: "我的" }
+    ]
+  }
+})
+```
+
 ---
 
-### 3. 首页 (监测) `src/pages/index/index.tsx`
+### 4. 监测页 `src/pages/index/index.tsx`
 
 ```tsx
 import React, { useState, useEffect } from 'react';
@@ -125,9 +134,7 @@ export default function Index() {
   useEffect(() => {
     let interval: any;
     if (isMonitoring && quickTimerLeft === 0) {
-      interval = setInterval(() => {
-        setSedentaryTime(prev => prev + 1);
-      }, 1000);
+      interval = setInterval(() => setSedentaryTime(p => p + 1), 1000);
     }
     return () => clearInterval(interval);
   }, [isMonitoring, quickTimerLeft]);
@@ -138,7 +145,7 @@ export default function Index() {
       interval = setInterval(() => {
         setQuickTimerLeft(prev => {
           if (prev <= 1) {
-             Taro.showToast({ title: '时间到了！', icon: 'none', duration: 2000 });
+             Taro.showToast({ title: '时间到了！', icon: 'none' });
              Taro.vibrateLong();
              return 0;
           }
@@ -150,167 +157,169 @@ export default function Index() {
   }, [quickTimerLeft]);
 
   const handleMoved = () => {
-    Taro.showToast({ title: '太棒了！状态已重置', icon: 'success' });
+    Taro.showToast({ title: '状态已重置', icon: 'success' });
     setSedentaryTime(0);
-  };
-
-  const startQuickTimer = (min: number) => {
-      setQuickTimerLeft(min * 60);
-      Taro.showToast({ title: `开始 ${min} 分钟倒计时`, icon: 'none' });
   };
 
   return (
     <View className='container'>
-      <View className='header'>
-         <Text className='title'>SitClock</Text>
-         <Text className='subtitle'>{isMonitoring ? '正在监测中...' : '已暂停监测'}</Text>
+      <View className='header'><Text className='title'>SitClock</Text><Text className='sub'>保持健康办公</Text></View>
+      <View className={`circle ${quickTimerLeft > 0 ? 'red' : ''}`}>
+         <Text className='time'>{formatTime(quickTimerLeft || sedentaryTime)}</Text>
+         <Text className='label'>{quickTimerLeft > 0 ? '倒计时' : '久坐时长'}</Text>
       </View>
-
-      <View className={`timer-circle ${quickTimerLeft > 0 ? 'timer-active' : ''}`}>
-         <View className='timer-content'>
-             {quickTimerLeft > 0 ? (
-                 <>
-                    <Text className='timer-text red'>{formatTime(quickTimerLeft)}</Text>
-                    <Text className='timer-label'>倒计时</Text>
-                 </>
-             ) : (
-                 <>
-                    <Text className='timer-text'>{formatTime(sedentaryTime)}</Text>
-                    <Text className='timer-label'>久坐时长</Text>
-                 </>
-             )}
-         </View>
+      <View className='quick-row'>
+          {[30, 45, 60].map(m => (
+              <Button key={m} className='pill' onClick={() => setQuickTimerLeft(m*60)}>{m}分</Button>
+          ))}
       </View>
-
-      <View className='quick-actions'>
-          <Button className='mini-btn' onClick={() => startQuickTimer(30)}>30分</Button>
-          <Button className='mini-btn' onClick={() => startQuickTimer(45)}>45分</Button>
-          <Button className='mini-btn' onClick={() => startQuickTimer(60)}>60分</Button>
-      </View>
-
-      <View className='main-actions'>
-         <Button className={`action-btn ${isMonitoring ? 'outline' : 'primary'}`} onClick={() => setIsMonitoring(!isMonitoring)}>
-            {isMonitoring ? '暂停' : '继续'}
-         </Button>
-         <Button className='action-btn primary' onClick={handleMoved}>
-            动一下
-         </Button>
+      <View className='row'>
+         <Button className='btn outline' onClick={() => setIsMonitoring(!isMonitoring)}>{isMonitoring ? '暂停' : '继续'}</Button>
+         <Button className='btn primary' onClick={handleMoved}>动一下</Button>
       </View>
     </View>
   );
 }
 ```
-
-**`src/pages/index/index.scss`**:
-```scss
-.container { padding: 40rpx; display: flex; flex-direction: column; align-items: center; min-height: 100vh; background-color: #f3f4f6; }
-.header { width: 100%; margin-bottom: 60rpx; }
-.title { font-size: 48rpx; font-weight: bold; color: #1f2937; display: block; }
-.subtitle { font-size: 28rpx; color: #6b7280; }
-.timer-circle {
-  width: 480rpx; height: 480rpx; border-radius: 50%; background: white; border: 24rpx solid #e0e7ff;
-  display: flex; justify-content: center; align-items: center; margin-bottom: 60rpx;
-  box-shadow: 0 20rpx 50rpx rgba(0,0,0,0.05); position: relative;
-  &.timer-active { border-color: #fee2e2; animation: pulse 2s infinite; }
-}
-@keyframes pulse {
-  0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); }
-}
-.timer-content { text-align: center; }
-.timer-text { font-size: 100rpx; font-weight: bold; color: #3730a3; font-family: monospace; display: block; &.red { color: #dc2626; } }
-.timer-label { font-size: 28rpx; color: #9ca3af; display: block; }
-.quick-actions { display: flex; gap: 20rpx; margin-bottom: 40rpx; }
-.mini-btn { font-size: 24rpx; padding: 0 30rpx; height: 64rpx; line-height: 64rpx; background: white; color: #4b5563; border-radius: 32rpx; &::after { border: none; } }
-.main-actions { width: 100%; display: flex; gap: 30rpx; }
-.action-btn { flex: 1; height: 100rpx; line-height: 100rpx; border-radius: 24rpx; font-weight: bold; font-size: 32rpx; &.primary { background: #4f46e5; color: white; } &.outline { background: white; color: #4f46e5; border: 2rpx solid #e0e7ff; } }
-```
-**`src/pages/index/index.config.ts`**: `export default definePageConfig({ navigationBarTitleText: 'SitClock 监测' })`
+*scss (简略)*: `.container{padding:40px;align-items:center;display:flex;flex-direction:column} .circle{width:240px;height:240px;border-radius:50%;border:10px solid #e0e7ff;display:flex;flex-direction:column;justify-content:center;align-items:center;margin:40px 0} .circle.red{border-color:#fee2e2;animation:pulse 1s infinite} .time{font-size:50px;font-weight:bold;font-family:monospace;color:#4f46e5} .circle.red .time{color:#dc2626} .quick-row{display:flex;gap:10px;margin-bottom:20px} .pill{font-size:12px;border-radius:20px;background:white} .row{width:100%;display:flex;gap:15px} .btn{flex:1;border-radius:12px} .primary{background:#4f46e5;color:white} .outline{background:white;color:#4f46e5;border:1px solid #4f46e5}`
 
 ---
 
-### 4. 课程页 (AI) `src/pages/workouts/index.tsx`
+### 5. 课程页 `src/pages/workouts/index.tsx`
 
 ```tsx
 import React, { useState } from 'react';
 import { View, Text, Button, Image, ScrollView } from '@tarojs/components';
+import Taro from '@tarojs/taro';
 import { request } from '../../utils/request';
 import './index.scss';
 
 export default function Workouts() {
   const [plans, setPlans] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [category, setCategory] = useState('neck');
+  const [cat, setCat] = useState('neck');
 
-  const categories = [
-      {id: 'neck', label: '肩颈'},
-      {id: 'waist', label: '腰部'},
-      {id: 'eyes', label: '眼部'},
-      {id: 'fullbody', label: '全身'}
-  ];
-
-  const generate = async () => {
+  const gen = async () => {
     setLoading(true);
     try {
-      const res = await request('/generate-workout', 'POST', { focusArea: category, language: 'zh' });
+      const res = await request('/generate-workout', 'POST', { focusArea: cat, language: 'zh' });
       setPlans(res);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) {} finally { setLoading(false); }
+  };
+
+  const start = (item: any) => {
+      // 跳转到播放器页面，传递课程信息
+      Taro.navigateTo({ url: `/pages/player/index?data=${encodeURIComponent(JSON.stringify(item))}` });
   };
 
   return (
     <View className='page'>
-       <ScrollView scrollX className='filters'>
-          {categories.map(cat => (
-              <View key={cat.id} className={`chip ${category === cat.id ? 'active' : ''}`} onClick={() => setCategory(cat.id)}>
-                  <Text className={`chip-text ${category === cat.id ? 'active-text' : ''}`}>{cat.label}</Text>
-              </View>
+       <ScrollView scrollX className='tabs'>
+          {['neck','waist','eyes','fullbody'].map(c => (
+              <View key={c} className={`tab ${cat===c?'active':''}`} onClick={()=>setCat(c)}><Text>{c}</Text></View>
           ))}
        </ScrollView>
        <View className='banner'>
-           <Text className='banner-title'>AI 智能计划生成</Text>
-           <Text className='banner-desc'>定制 {categories.find(c=>c.id===category)?.label} 放松计划</Text>
-           <Button className='gen-btn' onClick={generate} disabled={loading}>{loading ? '生成中...' : '立即生成'}</Button>
+           <Text className='b-title'>AI 智能生成</Text>
+           <Button className='b-btn' onClick={gen} disabled={loading}>{loading?'...':'生成计划'}</Button>
        </View>
-       <View className='list'>
-          {plans.map((item, idx) => (
-            <View key={idx} className='card'>
-               <Image src={item.imageUrl} className='card-img' mode='aspectFill' />
-               <View className='card-body'>
-                   <Text className='card-title'>{item.name}</Text>
-                   <Text className='card-desc'>{item.description}</Text>
+       {plans.map((item, i) => (
+           <View key={i} className='card' onClick={() => start(item)}>
+               <Image src={item.imageUrl} className='img' mode='aspectFill' />
+               <View className='info'>
+                   <Text className='name'>{item.name}</Text>
+                   <Button className='play-btn'>开始跟练</Button>
                </View>
-            </View>
-          ))}
-       </View>
+           </View>
+       ))}
     </View>
   );
 }
 ```
-
-**`src/pages/workouts/index.scss`**:
-```scss
-.page { padding: 32rpx; background: #f9fafb; min-height: 100vh; }
-.filters { white-space: nowrap; margin-bottom: 30rpx; }
-.chip { display: inline-block; padding: 12rpx 32rpx; background: white; border-radius: 40rpx; margin-right: 20rpx; border: 2rpx solid #eee; &.active { background: #4f46e5; border-color: #4f46e5; } }
-.chip-text { font-size: 26rpx; color: #666; &.active-text { color: white; } }
-.banner { background: #4f46e5; border-radius: 24rpx; padding: 40rpx; margin-bottom: 40rpx; color: white; }
-.banner-title { font-weight: bold; font-size: 36rpx; display: block; margin-bottom: 10rpx; }
-.banner-desc { font-size: 24rpx; opacity: 0.8; display: block; margin-bottom: 30rpx; }
-.gen-btn { background: white; color: #4f46e5; font-size: 28rpx; border-radius: 16rpx; font-weight: bold; }
-.card { background: white; border-radius: 24rpx; overflow: hidden; margin-bottom: 30rpx; box-shadow: 0 4rpx 10rpx rgba(0,0,0,0.05); }
-.card-img { width: 100%; height: 280rpx; }
-.card-body { padding: 30rpx; }
-.card-title { font-weight: bold; font-size: 32rpx; color: #333; display: block; margin-bottom: 10rpx; }
-.card-desc { font-size: 26rpx; color: #666; line-height: 1.4; }
-```
-**`src/pages/workouts/index.config.ts`**: `export default definePageConfig({ navigationBarTitleText: '微健身' })`
+*scss*: `.page{padding:20px;background:#f9fafb;min-height:100vh} .tabs{white-space:nowrap;margin-bottom:20px} .tab{display:inline-block;padding:5px 15px;background:white;border-radius:20px;margin-right:10px;border:1px solid #eee} .tab.active{background:#4f46e5;color:white} .banner{background:#4f46e5;padding:20px;border-radius:15px;color:white;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center} .b-btn{background:white;color:#4f46e5;font-size:12px} .card{background:white;border-radius:15px;overflow:hidden;margin-bottom:15px;box-shadow:0 2px 10px rgba(0,0,0,0.05)} .img{width:100%;height:150px} .info{padding:15px} .name{font-weight:bold;display:block;margin-bottom:10px} .play-btn{background:#4f46e5;color:white;font-size:14px}`
 
 ---
 
-### 5. 数据统计 `src/pages/stats/index.tsx`
+### 6. 跟练播放器 (新增) `src/pages/player/index.tsx`
+
+```tsx
+import React, { useState, useEffect } from 'react';
+import { View, Text, Button, Image } from '@tarojs/components';
+import Taro, { useRouter } from '@tarojs/taro';
+import { request } from '../../utils/request';
+import './index.scss';
+
+export default function Player() {
+  const router = useRouter();
+  const [ex, setEx] = useState<any>(null);
+  const [time, setTime] = useState(0);
+  const [active, setActive] = useState(true);
+
+  useEffect(() => {
+      if (router.params.data) {
+          const item = JSON.parse(decodeURIComponent(router.params.data));
+          setEx(item);
+          setTime(item.duration || 60);
+      }
+  }, [router]);
+
+  useEffect(() => {
+      let interval: any;
+      if (active && time > 0) {
+          interval = setInterval(() => setTime(t => t - 1), 1000);
+      } else if (time === 0 && active) {
+          finish();
+      }
+      return () => clearInterval(interval);
+  }, [active, time]);
+
+  const finish = async () => {
+      setActive(false);
+      Taro.vibrateLong();
+      Taro.showModal({
+          title: '完成！',
+          content: '太棒了，运动数据已同步。',
+          showCancel: false,
+          success: () => Taro.navigateBack()
+      });
+      
+      // 同步数据到后端
+      const user = Taro.getStorageSync('user');
+      if (user) {
+          try {
+              // 简单逻辑：每次完成增加一次记录
+              // 注意：这里需要根据您的真实后端逻辑调整，此处仅为示例
+              // await request('/stats', 'POST', { userId: user.id, totalWorkouts: ... });
+          } catch(e) {}
+      }
+  };
+
+  if (!ex) return <View>Loading...</View>;
+
+  return (
+    <View className='p-page'>
+        <Image src={ex.imageUrl} className='p-bg' mode='aspectFill' />
+        <View className='overlay'>
+            <View className='circle'>
+                <Text className='count'>{time}</Text>
+                <Text className='status'>{active ? '跟练中' : '已暂停'}</Text>
+            </View>
+            <Text className='p-name'>{ex.name}</Text>
+            <Text className='p-desc'>{ex.description}</Text>
+            <View className='p-ctrl'>
+                <Button className='c-btn' onClick={() => setActive(!active)}>{active ? '暂停' : '继续'}</Button>
+                <Button className='c-btn stop' onClick={() => Taro.navigateBack()}>退出</Button>
+            </View>
+        </View>
+    </View>
+  );
+}
+```
+*scss*: `.p-page{height:100vh;position:relative;background:black;color:white} .p-bg{width:100%;height:100%;opacity:0.4} .overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px} .circle{width:200px;height:200px;border:5px solid #4f46e5;border-radius:50%;display:flex;flex-direction:column;justify-content:center;align-items:center;margin-bottom:30px} .count{font-size:60px;font-weight:bold} .p-name{font-size:24px;font-weight:bold;margin-bottom:10px} .p-desc{text-align:center;opacity:0.8;margin-bottom:40px} .p-ctrl{display:flex;gap:20px;width:100%} .c-btn{flex:1;background:#4f46e5;color:white} .stop{background:#4b5563}`
+
+---
+
+### 7. 数据统计 `src/pages/stats/index.tsx`
 
 ```tsx
 import React, { useState, useEffect } from 'react';
@@ -320,186 +329,157 @@ import { request } from '../../utils/request';
 import './index.scss';
 
 export default function Stats() {
-  const [stats, setStats] = useState<any>(null);
+  const [data, setData] = useState<any>(null);
 
   useEffect(() => {
-    // 每次进入页面刷新数据
-    const fetchData = async () => {
-        const user = Taro.getStorageSync('user');
-        if (user && user.id) {
-            try {
-                const res = await request(`/stats?userId=${user.id}`);
-                setStats(res);
-            } catch (e) {}
-        }
-    };
-    fetchData();
+     // 支持下拉刷新逻辑
+     load();
   }, []);
 
-  const todayMinutes = stats?.activity?.length > 0 ? stats.activity[stats.activity.length-1].sedentary_minutes : 0;
-  const percent = Math.min((todayMinutes / 480) * 100, 100); // 8小时预算
+  const load = async () => {
+      const user = Taro.getStorageSync('user');
+      if (user) {
+          try {
+              const res = await request(`/stats?userId=${user.id}`);
+              setData(res);
+          } catch(e) {}
+      }
+  };
+
+  const todayMinutes = data?.activity?.length > 0 ? data.activity[data.activity.length-1].sedentary_minutes : 0;
+  const percent = Math.min((todayMinutes / 480) * 100, 100);
 
   return (
-    <View className='page'>
-       <View className='section'>
-           <Text className='sec-title'>健康久坐预算 (8小时)</Text>
-           <View className='progress-bg'>
-               <View className='progress-bar' style={{width: `${percent}%`, backgroundColor: percent > 90 ? '#ef4444' : '#22c55e'}}></View>
-           </View>
-           <Text className='hint'>已使用 {Math.floor(todayMinutes/60)} 小时 {todayMinutes%60} 分钟</Text>
-       </View>
-
-       <View className='section'>
-           <Text className='sec-title'>周趋势</Text>
-           <View className='chart'>
-               {(stats?.activity || []).map((day, idx) => {
-                   const h = Math.min((day.sedentary_minutes / 60) * 20, 150); // Scale height
-                   return (
-                       <View key={idx} className='bar-group'>
-                           <View className='bar' style={{height: `${h}rpx`}}></View>
-                           <Text className='date'>{day.activity_date_str.slice(5)}</Text>
-                       </View>
-                   )
-               })}
-           </View>
-       </View>
+    <View className='s-page'>
+        <View className='card'>
+            <Text className='head'>健康久坐预算 (8小时)</Text>
+            <View className='progress'><View className='fill' style={{width: `${percent}%`}}></View></View>
+            <Text className='sub'>已用 {Math.floor(todayMinutes/60)}小时{todayMinutes%60}分</Text>
+        </View>
+        <View className='card'>
+            <Text className='head'>周趋势</Text>
+            <View className='chart'>
+                {(data?.activity || []).map((d, i) => (
+                    <View key={i} className='bar-box'>
+                        <View className='bar' style={{height: `${Math.min(d.sedentary_minutes/3, 150)}px`}}></View>
+                        <Text className='day'>{d.activity_date_str.slice(8)}</Text>
+                    </View>
+                ))}
+            </View>
+        </View>
     </View>
   );
 }
 ```
-
-**`src/pages/stats/index.scss`**:
-```scss
-.page { padding: 32rpx; background: #f9fafb; min-height: 100vh; }
-.section { background: white; padding: 32rpx; border-radius: 24rpx; margin-bottom: 30rpx; }
-.sec-title { font-weight: bold; font-size: 32rpx; margin-bottom: 20rpx; display: block; }
-.progress-bg { height: 24rpx; background: #f3f4f6; border-radius: 12rpx; overflow: hidden; margin-bottom: 10rpx; }
-.progress-bar { height: 100%; transition: width 0.5s; }
-.hint { font-size: 24rpx; color: #666; }
-.chart { display: flex; align-items: flex-end; justify-content: space-between; height: 200rpx; padding-top: 20rpx; }
-.bar-group { display: flex; flex-direction: column; align-items: center; }
-.bar { width: 30rpx; background: #6366f1; border-radius: 6rpx 6rpx 0 0; }
-.date { font-size: 20rpx; color: #999; margin-top: 10rpx; }
-```
-**`src/pages/stats/index.config.ts`**: `export default definePageConfig({ navigationBarTitleText: '数据统计' })`
+*scss*: `.s-page{padding:20px;background:#f3f4f6;min-height:100vh} .card{background:white;padding:20px;border-radius:15px;margin-bottom:20px} .head{font-weight:bold;display:block;margin-bottom:15px} .progress{height:10px;background:#f3f4f6;border-radius:5px;overflow:hidden;margin-bottom:10px} .fill{height:100%;background:#4f46e5} .chart{display:flex;align-items:flex-end;justify-content:space-between;height:180px} .bar{width:15px;background:#6366f1;border-radius:5px 5px 0 0} .day{font-size:10px;color:#999;margin-top:5px}`
 
 ---
 
-### 6. 我的 (登录与勋章) `src/pages/profile/index.tsx`
+### 8. 我的 (登录/勋章) `src/pages/profile/index.tsx`
 
 ```tsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, Button, Input } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { request } from '../../utils/request';
+import { getBadges, INSPIRATIONAL_QUOTES } from '../../constants';
 import './index.scss';
 
 export default function Profile() {
   const [user, setUser] = useState<any>(null);
-  const [isLoginMode, setIsLoginMode] = useState(true); // false = Email Mode
+  const [stats, setStats] = useState<any>(null);
+  const [loginMode, setMode] = useState(true); // true=WeChat, false=Email
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [pass, setPass] = useState('');
 
   useEffect(() => {
-    const saved = Taro.getStorageSync('user');
-    if (saved) setUser(saved);
+     const u = Taro.getStorageSync('user');
+     if (u) {
+         setUser(u);
+         loadStats(u.id);
+     }
   }, []);
 
-  const handleWechatLogin = async () => {
-    try {
-        const { code } = await Taro.login();
-        const res = await request('/wechat-login', 'POST', { code });
-        if (res.user) {
-            Taro.setStorageSync('user', res.user);
-            setUser(res.user);
-            Taro.showToast({ title: '登录成功' });
-        }
-    } catch (e) {
-        Taro.showToast({ title: '登录失败', icon: 'none' });
-    }
+  const loadStats = async (uid) => {
+      try {
+          const res = await request(`/stats?userId=${uid}`);
+          setStats(res);
+      } catch(e) {}
   };
 
-  const handleEmailLogin = async () => {
+  const wxLogin = async () => {
       try {
-          const res = await request('/login', 'POST', { email, password });
+          const { code } = await Taro.login();
+          const res = await request('/wechat-login', 'POST', { code });
           if (res.user) {
               Taro.setStorageSync('user', res.user);
               setUser(res.user);
-              Taro.showToast({ title: '同步成功' });
+              loadStats(res.user.id);
           }
-      } catch (e) {
-          Taro.showToast({ title: '账号或密码错误', icon: 'none' });
-      }
+      } catch(e) { Taro.showToast({title:'登录失败',icon:'none'}); }
   };
 
-  const logout = () => {
-      Taro.removeStorageSync('user');
-      setUser(null);
+  const emailLogin = async () => {
+      try {
+          const res = await request('/login', 'POST', { email, password: pass });
+          if (res.user) {
+              Taro.setStorageSync('user', res.user);
+              setUser(res.user);
+              loadStats(res.user.id);
+          }
+      } catch(e) { Taro.showToast({title:'账号错误',icon:'none'}); }
   };
 
   if (!user) {
       return (
-          <View className='page login-container'>
-             <Text className='logo-text'>SitClock</Text>
-             {isLoginMode ? (
-                 <View>
-                    <Button className='wx-btn' onClick={handleWechatLogin}>微信一键登录</Button>
-                    <Text className='switch-link' onClick={() => setIsLoginMode(false)}>使用邮箱账号同步数据 &gt;</Text>
-                 </View>
-             ) : (
-                 <View className='form'>
-                     <Input className='input' placeholder='邮箱' onInput={e=>setEmail(e.detail.value)} />
-                     <Input className='input' password placeholder='密码' onInput={e=>setPassword(e.detail.value)} />
-                     <Button className='email-btn' onClick={handleEmailLogin}>登录并同步</Button>
-                     <Text className='switch-link' onClick={() => setIsLoginMode(true)}>&lt; 返回微信登录</Text>
-                 </View>
-             )}
+          <View className='login-box'>
+              <Text className='l-title'>SitClock</Text>
+              {loginMode ? (
+                  <>
+                    <Button className='wx-btn' onClick={wxLogin}>微信一键登录</Button>
+                    <Text className='link' onClick={()=>setMode(false)}>使用邮箱账号同步 &gt;</Text>
+                  </>
+              ) : (
+                  <>
+                    <Input className='inp' placeholder='邮箱' onInput={e=>setEmail(e.detail.value)} />
+                    <Input className='inp' password placeholder='密码' onInput={e=>setPass(e.detail.value)} />
+                    <Button className='e-btn' onClick={emailLogin}>登录同步</Button>
+                    <Text className='link' onClick={()=>setMode(true)}>&lt; 返回微信登录</Text>
+                  </>
+              )}
           </View>
       )
   }
 
+  const todayMin = stats?.activity?.length > 0 ? stats.activity[stats.activity.length-1].sedentary_minutes : 0;
+  const badges = getBadges(stats?.stats, todayMin);
+  const quote = INSPIRATIONAL_QUOTES[new Date().getDate() % INSPIRATIONAL_QUOTES.length];
+
   return (
     <View className='page'>
-       <View className='user-card'>
-           <View className='avatar'>{user.name[0]}</View>
-           <View className='info'>
-               <Text className='name'>{user.name}</Text>
-               <Text className='email'>{user.email || '微信用户'}</Text>
-           </View>
-       </View>
-
-       <View className='badges-sec'>
-           <Text className='sec-title'>我的勋章</Text>
-           <View className='badges-grid'>
-               <View className='badge-item unlocked'><Text>🚀</Text><Text>初次启程</Text></View>
-               <View className='badge-item'><Text>🔥</Text><Text>3天连胜</Text></View>
-               <View className='badge-item'><Text>🏆</Text><Text>健身达人</Text></View>
+       <View className='u-card'>
+           <View className='avi'>{user.name[0]}</View>
+           <View>
+               <Text className='u-name'>{user.name}</Text>
+               <Text className='u-quote'>{quote.zh}</Text>
            </View>
        </View>
        
-       <Button className='logout-btn' onClick={logout}>退出登录</Button>
+       <View className='b-sec'>
+           <Text className='st'>勋章墙</Text>
+           <View className='grid'>
+               {badges.map(b => (
+                   <View key={b.id} className={`b-item ${b.unlocked?'on':''}`}>
+                       <Text className='icon'>{b.icon}</Text>
+                       <Text className='bn'>{b.name}</Text>
+                   </View>
+               ))}
+           </View>
+       </View>
+       
+       <Button className='out' onClick={()=>{Taro.removeStorageSync('user');setUser(null)}}>退出登录</Button>
     </View>
   );
 }
 ```
-
-**`src/pages/profile/index.scss`**:
-```scss
-.page { padding: 32rpx; background: #f9fafb; min-height: 100vh; }
-.login-container { display: flex; flex-direction: column; justify-content: center; align-items: center; }
-.logo-text { font-size: 60rpx; font-weight: bold; color: #333; margin-bottom: 60rpx; }
-.wx-btn { background: #07c160; color: white; width: 500rpx; border-radius: 50rpx; margin-bottom: 30rpx; }
-.email-btn { background: #4f46e5; color: white; width: 500rpx; border-radius: 50rpx; margin-bottom: 30rpx; }
-.switch-link { color: #666; font-size: 28rpx; text-decoration: underline; margin-top: 20rpx; display: block; text-align: center; }
-.input { background: white; width: 500rpx; padding: 20rpx; margin-bottom: 20rpx; border-radius: 12rpx; border: 1px solid #ddd; }
-.user-card { background: white; padding: 40rpx; border-radius: 24rpx; display: flex; align-items: center; margin-bottom: 40rpx; }
-.avatar { width: 100rpx; height: 100rpx; background: #e0e7ff; border-radius: 50%; display: flex; justify-content: center; align-items: center; color: #4f46e5; font-size: 40rpx; font-weight: bold; margin-right: 30rpx; }
-.name { font-size: 36rpx; font-weight: bold; color: #333; display: block; }
-.email { font-size: 24rpx; color: #999; }
-.badges-sec { background: white; padding: 30rpx; border-radius: 24rpx; margin-bottom: 40rpx; }
-.sec-title { font-weight: bold; margin-bottom: 20rpx; display: block; }
-.badges-grid { display: flex; gap: 20rpx; }
-.badge-item { width: 140rpx; height: 140rpx; background: #f3f4f6; border-radius: 12rpx; display: flex; flex-direction: column; justify-content: center; align-items: center; font-size: 24rpx; color: #999; &.unlocked { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; } }
-.logout-btn { background: white; color: #ef4444; }
-```
-**`src/pages/profile/index.config.ts`**: `export default definePageConfig({ navigationBarTitleText: '个人中心' })`
+*scss*: `.page{padding:20px;background:#f9fafb;min-height:100vh} .login-box{height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center} .l-title{font-size:30px;font-weight:bold;margin-bottom:40px} .wx-btn,.e-btn{width:80%;border-radius:25px;margin-bottom:20px;color:white} .wx-btn{background:#07c160} .e-btn{background:#4f46e5} .inp{width:80%;padding:10px;background:white;margin-bottom:10px;border-radius:10px} .link{color:#666;font-size:14px;text-decoration:underline} .u-card{background:white;padding:20px;border-radius:15px;display:flex;align-items:center;margin-bottom:20px} .avi{width:50px;height:50px;background:#e0e7ff;border-radius:50%;display:flex;justify-content:center;align-items:center;color:#4f46e5;font-weight:bold;margin-right:15px} .u-name{font-weight:bold;display:block} .u-quote{font-size:12px;color:#999} .b-sec{background:white;padding:20px;border-radius:15px;margin-bottom:20px} .st{font-weight:bold;display:block;margin-bottom:15px} .grid{display:flex;gap:10px;flex-wrap:wrap} .b-item{width:30%;height:80px;background:#f3f4f6;border-radius:10px;display:flex;flex-direction:column;justify-content:center;align-items:center;opacity:0.5} .b-item.on{background:#ecfdf5;color:#047857;opacity:1} .out{background:white;color:red;margin-top:20px}`

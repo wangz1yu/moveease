@@ -121,6 +121,16 @@ db.getConnection(async (err, connection) => {
           console.log('🔄 Migrating: Adding wechat_openid column...');
           await runQuery("ALTER TABLE users ADD COLUMN wechat_openid VARCHAR(255) UNIQUE");
       }
+      
+      // Create announcements table
+      await runQuery(`
+        CREATE TABLE IF NOT EXISTS announcements (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(255) NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
 
   } catch (e) {
       console.error("Table init error", e);
@@ -130,7 +140,7 @@ db.getConnection(async (err, connection) => {
 // 4. API Routes
 
 app.get('/', (req, res) => {
-  res.send('✅ SitClock Backend is running! v2.1 (WeChat Ready)');
+  res.send('✅ SitClock Backend is running! v4.0 (Production Ready)');
 });
 
 app.post('/api/upload-avatar', upload.single('avatar'), (req, res) => {
@@ -170,15 +180,12 @@ app.post('/api/login', (req, res) => {
   });
 });
 
-// --- WECHAT LOGIN (NEW) ---
+// --- WECHAT LOGIN ---
 app.post('/api/wechat-login', async (req, res) => {
-    const { code, userInfo } = req.body; // userInfo is optional (nickName, avatarUrl)
-    
-    // 1. 获取 OpenID
+    const { code, userInfo } = req.body; 
     let openid = null;
     
     if (WX_APP_ID && WX_APP_SECRET) {
-        // 真实环境：请求微信服务器
         try {
             const wxUrl = `https://api.weixin.qq.com/sns/jscode2session?appid=${WX_APP_ID}&secret=${WX_APP_SECRET}&js_code=${code}&grant_type=authorization_code`;
             const wxRes = await new Promise((resolve, reject) => {
@@ -188,53 +195,33 @@ app.post('/api/wechat-login', async (req, res) => {
                     r.on('end', () => resolve(JSON.parse(data)));
                 }).on('error', reject);
             });
-            
-            if (wxRes.errcode) {
-                return res.status(400).json({ error: `WeChat Error: ${wxRes.errmsg}` });
-            }
+            if (wxRes.errcode) return res.status(400).json({ error: `WeChat Error: ${wxRes.errmsg}` });
             openid = wxRes.openid;
-        } catch (e) {
-            console.error("WeChat Login Error", e);
-            return res.status(500).json({ error: "Failed to connect to WeChat" });
-        }
+        } catch (e) { return res.status(500).json({ error: "Failed to connect to WeChat" }); }
     } else {
-        // 开发环境 / 模拟环境：使用 Code 作为模拟 OpenID
-        // ⚠️ 上线前请务必配置真实 AppID
         console.log("⚠️ Dev Mode: Using code as mock OpenID");
         openid = `mock_openid_${code}`; 
     }
 
     if (!openid) return res.status(400).json({ error: "Failed to get OpenID" });
 
-    // 2. 查找或创建用户
     db.query('SELECT * FROM users WHERE wechat_openid = ?', [openid], async (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
-        
         if (results.length > 0) {
-            // 用户已存在 -> 登录
             const user = results[0];
-            return res.json({ 
-                message: 'Login success', 
-                user: { id: user.id.toString(), name: user.username, email: user.email || '', avatar: user.avatar_url || '' } 
-            });
+            return res.json({ message: 'Login success', user: { id: user.id.toString(), name: user.username, email: user.email || '', avatar: user.avatar_url || '' } });
         } else {
-            // 用户不存在 -> 自动注册
-            const mockEmail = `${openid}@wechat.com`; // 占位邮箱
+            const mockEmail = `${openid}@wechat.com`;
             const name = userInfo?.nickName || `WeChat User`;
             const avatar = userInfo?.avatarUrl || '';
-            const password = openid; // 这里的密码意义不大，主要靠 openid 登录
-            
+            const password = openid;
             try {
                 const salt = await bcrypt.genSalt(10);
                 const hashedPassword = await bcrypt.hash(password, salt);
-                
                 const insertQuery = 'INSERT INTO users (username, email, password_hash, avatar_url, wechat_openid) VALUES (?, ?, ?, ?, ?)';
                 db.query(insertQuery, [name, mockEmail, hashedPassword, avatar, openid], (insertErr, result) => {
                     if (insertErr) return res.status(500).json({ error: insertErr.message });
-                    res.status(201).json({ 
-                        message: 'Registered via WeChat', 
-                        user: { id: result.insertId.toString(), name, email: mockEmail, avatar } 
-                    });
+                    res.status(201).json({ message: 'Registered via WeChat', user: { id: result.insertId.toString(), name, email: mockEmail, avatar } });
                 });
             } catch (e) { res.status(500).json({ error: 'Server error' }); }
         }
@@ -286,7 +273,10 @@ app.get('/api/stats', (req, res) => {
 
 app.post('/api/stats', (req, res) => {
     const { userId, totalWorkouts, currentStreak, lastWorkoutDate, todaySedentaryMinutes, todayBreaks } = req.body;
+    
+    // Auto-update streak if passed, or keep existing logic
     const statsQuery = `INSERT INTO user_stats (user_id, total_workouts, current_streak, last_workout_date) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE total_workouts = VALUES(total_workouts), current_streak = VALUES(current_streak), last_workout_date = VALUES(last_workout_date)`;
+    
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }); 
     const activityQuery = `INSERT INTO daily_activities (user_id, activity_date, sedentary_minutes, active_breaks) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE sedentary_minutes = VALUES(sedentary_minutes), active_breaks = VALUES(active_breaks)`;
 
@@ -313,61 +303,29 @@ app.post('/api/timer', (req, res) => {
 // --- AI Generation Proxy ---
 app.post('/api/generate-workout', async (req, res) => {
     const { focusArea, language } = req.body;
-    if (!GoogleGenAI) return res.status(500).json({ error: "AI Service Not Available (Library missing)" });
-    
-    // VALIDATE API KEY
-    if (!GOOGLE_API_KEY || GOOGLE_API_KEY.includes("YOUR_REAL_API_KEY")) {
-        console.error("❌ ERROR: API_KEY is not configured in server.js!");
-        return res.status(500).json({ error: "Server API Key not configured." });
-    }
+    if (!GoogleGenAI) return res.status(500).json({ error: "AI Service Not Available" });
+    if (!GOOGLE_API_KEY || GOOGLE_API_KEY.includes("YOUR_REAL_API_KEY")) return res.status(500).json({ error: "API Key not configured" });
 
     try {
         const ai = new GoogleGenAI({ apiKey: GOOGLE_API_KEY });
         const model = "gemini-2.5-flash";
         const langInstruction = language === 'zh' ? 'in Chinese (Simplified)' : 'in English';
+        const prompt = `Create a short "Micro-Fitness" workout plan for: ${focusArea}. Generate 3 simple exercises. Response in raw JSON. Content ${langInstruction}. 'category' must be "${focusArea}".`;
         
-        const prompt = `
-          Create a short "Micro-Fitness" workout plan for: ${focusArea}.
-          Generate 3 simple exercises.
-          Provide response in raw JSON format (no markdown).
-          Content must be ${langInstruction}.
-          IMPORTANT: The 'category' field MUST be exactly "${focusArea}".
-        `;
-    
         const response = await ai.models.generateContent({
           model: model,
           contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: { type: Type.STRING },
-                  name: { type: Type.STRING },
-                  duration: { type: Type.NUMBER },
-                  category: { type: Type.STRING },
-                  description: { type: Type.STRING },
-                  imageUrl: { type: Type.STRING }
-                },
-                required: ["id", "name", "duration", "description", "category"]
-              }
-            }
-          }
+          config: { responseMimeType: "application/json" }
         });
-    
+        
         let rawText = response.text || "[]";
         rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-        const exercises = JSON.parse(rawText);
-        
-        const exercisesWithImages = exercises.map((ex, index) => ({
+        const exercises = JSON.parse(rawText).map((ex, index) => ({
             ...ex,
             imageUrl: `https://picsum.photos/400/300?random=${Date.now() + index}`
         }));
         res.json(exercisesWithImages);
     } catch (error) {
-        console.error("AI Generation Error:", error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -376,6 +334,6 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`------------------------------------------------`);
     console.log(`🚀 SitClock 后端服务已启动 (SitClock Backend Started)`);
     console.log(`📡 监听地址: http://www.sitclock.com:${PORT}`);
-    console.log(`🔑 API Key status: ${GOOGLE_API_KEY.startsWith("AIza") ? "Configured (Starts with AIza...)" : "❌ NOT CONFIGURED"}`);
+    console.log(`🔑 API Key status: ${GOOGLE_API_KEY.startsWith("AIza") ? "Configured" : "❌ NOT CONFIGURED"}`);
     console.log(`------------------------------------------------`);
 });
