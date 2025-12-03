@@ -11,7 +11,7 @@ const https = require('https'); // Used for WeChat API
 
 // --- CONFIGURATION ---
 // ⚠️⚠️⚠️ 必须在这里填入您的 Google Gemini API Key ⚠️⚠️⚠️
-const GOOGLE_API_KEY = process.env.API_KEY || "YOUR_REAL_API_KEY_HERE"; 
+const GOOGLE_API_KEY = process.env.API_KEY || "AIzaSyC2sn2k3fdY-JmJsYnXivy8UPspbjdADq4"; 
 
 // ⚠️⚠️⚠️ 微信小程序配置 (上线前请填入真实信息) ⚠️⚠️⚠️
 const WX_APP_ID = process.env.WX_APP_ID || ""; 

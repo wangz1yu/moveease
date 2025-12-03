@@ -1,39 +1,40 @@
 
-# SitClock 微信小程序修复版开发指南 (Taro v3/v4)
+# SitClock 微信小程序开发全指南 (Taro 版 V3.0)
 
-**修复说明**：
-1.  **编译报错修复**：在 `app.config.ts` 中暂时注释掉了图标路径，防止因找不到图片导致编译失败。
-2.  **缺失文件补全**：提供了 `Workouts` (课程) 和 `Profile` (我的) 页面的完整代码。
+本指南包含完整的源代码，修复了所有缺失页面和图标报错，并实现了**微信登录**、**数据同步**和**勋章展示**功能。
 
 ---
 
-## 一、项目初始化 (如果您还没创建)
+## 一、项目结构
 
-```bash
-# 1. 安装 CLI
-npm install -g @tarojs/cli
+在您的 Taro 项目 (`sitclock-mp`) 中，确保目录结构如下：
 
-# 2. 初始化项目
-taro init sitclock-mp
-
-# 3. 选择配置 (推荐)
-# 框架: React
-# TS: Yes
-# CSS: Sass
-# 编译工具: Webpack5
+```
+src/
+  app.config.ts
+  app.scss
+  app.ts
+  utils/
+    request.ts
+  pages/
+    index/       (监测页)
+    workouts/    (课程页)
+    stats/       (数据页 - 新增)
+    profile/     (我的页 - 新增登录逻辑)
 ```
 
 ---
 
-## 二、核心配置修复 (src/app.config.ts)
+## 二、文件代码 (请直接复制覆盖)
 
-请直接覆盖 `src/app.config.ts`。我们暂时注释了图标，确保能跑起来。
+### 1. 全局配置 `src/app.config.ts`
 
 ```typescript
 export default defineAppConfig({
   pages: [
     'pages/index/index',
     'pages/workouts/index',
+    'pages/stats/index',
     'pages/profile/index'
   ],
   window: {
@@ -50,7 +51,6 @@ export default defineAppConfig({
       { 
         pagePath: "pages/index/index", 
         text: "监测",
-        // ⚠️ 修复：暂时注释图标，防止编译报错 "icon not found"
         // iconPath: "assets/home.png", 
         // selectedIconPath: "assets/home_active.png" 
       },
@@ -59,6 +59,12 @@ export default defineAppConfig({
         text: "课程",
         // iconPath: "assets/gym.png", 
         // selectedIconPath: "assets/gym_active.png" 
+      },
+      { 
+        pagePath: "pages/stats/index", 
+        text: "数据",
+        // iconPath: "assets/chart.png", 
+        // selectedIconPath: "assets/chart_active.png" 
       },
       { 
         pagePath: "pages/profile/index", 
@@ -71,16 +77,12 @@ export default defineAppConfig({
 })
 ```
 
----
-
-## 三、通用请求工具 (src/utils/request.ts)
-
-请新建文件夹 `src/utils`，并新建文件 `request.ts`。
+### 2. 请求封装 `src/utils/request.ts`
 
 ```typescript
 import Taro from '@tarojs/taro';
 
-// ⚠️ 注意：真机调试时，需在微信后台配置 request 合法域名为 https://www.sitclock.com
+// ⚠️ 真机调试需配置合法域名
 const BASE_URL = 'https://www.sitclock.com/api'; 
 
 export const request = async (url: string, method: 'GET'|'POST' = 'GET', data?: any) => {
@@ -93,7 +95,7 @@ export const request = async (url: string, method: 'GET'|'POST' = 'GET', data?: 
     });
     return res.data;
   } catch (err) {
-    Taro.showToast({ title: '网络错误', icon: 'none' });
+    Taro.showToast({ title: '网络连接失败', icon: 'none' });
     throw err;
   }
 };
@@ -101,16 +103,8 @@ export const request = async (url: string, method: 'GET'|'POST' = 'GET', data?: 
 
 ---
 
-## 四、首页 (src/pages/index/)
+### 3. 首页 (监测) `src/pages/index/index.tsx`
 
-### 1. src/pages/index/index.config.ts
-```typescript
-export default definePageConfig({
-  navigationBarTitleText: 'SitClock 监测'
-})
-```
-
-### 2. src/pages/index/index.tsx
 ```tsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, Button } from '@tarojs/components';
@@ -207,46 +201,35 @@ export default function Index() {
 }
 ```
 
-### 3. src/pages/index/index.scss
+**`src/pages/index/index.scss`**:
 ```scss
-.container { padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; background-color: #f3f4f6; }
-.header { width: 100%; margin-bottom: 30px; }
-.title { font-size: 24px; font-weight: bold; color: #1f2937; display: block; }
-.subtitle { font-size: 14px; color: #6b7280; }
+.container { padding: 40rpx; display: flex; flex-direction: column; align-items: center; min-height: 100vh; background-color: #f3f4f6; }
+.header { width: 100%; margin-bottom: 60rpx; }
+.title { font-size: 48rpx; font-weight: bold; color: #1f2937; display: block; }
+.subtitle { font-size: 28rpx; color: #6b7280; }
 .timer-circle {
-  width: 240px; height: 240px; border-radius: 50%; background: white; border: 12px solid #e0e7ff;
-  display: flex; justify-content: center; align-items: center; margin-bottom: 30px;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.05); position: relative;
+  width: 480rpx; height: 480rpx; border-radius: 50%; background: white; border: 24rpx solid #e0e7ff;
+  display: flex; justify-content: center; align-items: center; margin-bottom: 60rpx;
+  box-shadow: 0 20rpx 50rpx rgba(0,0,0,0.05); position: relative;
   &.timer-active { border-color: #fee2e2; animation: pulse 2s infinite; }
 }
 @keyframes pulse {
-  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-  70% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); }
 }
 .timer-content { text-align: center; }
-.timer-text { font-size: 56px; font-weight: bold; color: #3730a3; font-family: monospace; display: block; text-align: center; &.red { color: #dc2626; } }
-.timer-label { font-size: 14px; color: #9ca3af; text-align: center; display: block; }
-.quick-actions { display: flex; gap: 10px; margin-bottom: 20px; }
-.mini-btn { font-size: 12px; padding: 0 15px; height: 32px; line-height: 32px; background: white; color: #4b5563; border-radius: 16px; &::after { border: none; } }
-.main-actions { width: 100%; display: flex; gap: 15px; }
-.action-btn { flex: 1; height: 50px; line-height: 50px; border-radius: 12px; font-weight: bold; font-size: 16px; &.primary { background: #4f46e5; color: white; } &.outline { background: white; color: #4f46e5; border: 1px solid #e0e7ff; } }
+.timer-text { font-size: 100rpx; font-weight: bold; color: #3730a3; font-family: monospace; display: block; &.red { color: #dc2626; } }
+.timer-label { font-size: 28rpx; color: #9ca3af; display: block; }
+.quick-actions { display: flex; gap: 20rpx; margin-bottom: 40rpx; }
+.mini-btn { font-size: 24rpx; padding: 0 30rpx; height: 64rpx; line-height: 64rpx; background: white; color: #4b5563; border-radius: 32rpx; &::after { border: none; } }
+.main-actions { width: 100%; display: flex; gap: 30rpx; }
+.action-btn { flex: 1; height: 100rpx; line-height: 100rpx; border-radius: 24rpx; font-weight: bold; font-size: 32rpx; &.primary { background: #4f46e5; color: white; } &.outline { background: white; color: #4f46e5; border: 2rpx solid #e0e7ff; } }
 ```
+**`src/pages/index/index.config.ts`**: `export default definePageConfig({ navigationBarTitleText: 'SitClock 监测' })`
 
 ---
 
-## 五、课程页 (src/pages/workouts/)
+### 4. 课程页 (AI) `src/pages/workouts/index.tsx`
 
-**请务必创建此目录及以下3个文件，否则会报 "pages/workouts/index.js not found"**
-
-### 1. src/pages/workouts/index.config.ts
-```typescript
-export default definePageConfig({
-  navigationBarTitleText: '微健身课程'
-})
-```
-
-### 2. src/pages/workouts/index.tsx
 ```tsx
 import React, { useState } from 'react';
 import { View, Text, Button, Image, ScrollView } from '@tarojs/components';
@@ -262,14 +245,12 @@ export default function Workouts() {
       {id: 'neck', label: '肩颈'},
       {id: 'waist', label: '腰部'},
       {id: 'eyes', label: '眼部'},
-      {id: 'shoulders', label: '肩膀'},
       {id: 'fullbody', label: '全身'}
   ];
 
   const generate = async () => {
     setLoading(true);
     try {
-      // 调用后端 AI 接口
       const res = await request('/generate-workout', 'POST', { focusArea: category, language: 'zh' });
       setPlans(res);
     } catch (e) {
@@ -288,24 +269,17 @@ export default function Workouts() {
               </View>
           ))}
        </ScrollView>
-
        <View className='banner'>
-           <Text className='banner-title'>智能计划生成</Text>
-           <Text className='banner-desc'>针对 {categories.find(c=>c.id===category)?.label} 定制放松计划</Text>
-           <Button className='gen-btn' onClick={generate} disabled={loading}>
-               {loading ? 'AI 生成中...' : '生成计划'}
-           </Button>
+           <Text className='banner-title'>AI 智能计划生成</Text>
+           <Text className='banner-desc'>定制 {categories.find(c=>c.id===category)?.label} 放松计划</Text>
+           <Button className='gen-btn' onClick={generate} disabled={loading}>{loading ? '生成中...' : '立即生成'}</Button>
        </View>
-
        <View className='list'>
-          {plans.map((item) => (
-            <View key={item.id} className='card'>
+          {plans.map((item, idx) => (
+            <View key={idx} className='card'>
                <Image src={item.imageUrl} className='card-img' mode='aspectFill' />
                <View className='card-body'>
-                   <View className='card-header'>
-                       <Text className='card-title'>{item.name}</Text>
-                       <Text className='tag'>{item.category}</Text>
-                   </View>
+                   <Text className='card-title'>{item.name}</Text>
                    <Text className='card-desc'>{item.description}</Text>
                </View>
             </View>
@@ -316,85 +290,216 @@ export default function Workouts() {
 }
 ```
 
-### 3. src/pages/workouts/index.scss
+**`src/pages/workouts/index.scss`**:
 ```scss
-.page { padding: 16px; background: #f9fafb; min-height: 100vh; }
-.filters { white-space: nowrap; margin-bottom: 20px; }
-.chip { display: inline-block; padding: 6px 16px; background: white; border-radius: 20px; margin-right: 10px; border: 1px solid #eee; &.active { background: #4f46e5; border-color: #4f46e5; } }
-.chip-text { font-size: 14px; color: #666; &.active-text { color: white; } }
-.banner { background: #4f46e5; border-radius: 12px; padding: 20px; margin-bottom: 20px; color: white; }
-.banner-title { font-weight: bold; font-size: 18px; display: block; margin-bottom: 5px; color: white; }
-.banner-desc { font-size: 12px; opacity: 0.8; display: block; margin-bottom: 15px; color: white; }
-.gen-btn { background: white; color: #4f46e5; font-size: 14px; border-radius: 8px; font-weight: bold; &::after { border: none; } }
-.card { background: white; border-radius: 12px; overflow: hidden; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-.card-img { width: 100%; height: 140px; }
-.card-body { padding: 15px; }
-.card-header { display: flex; justify-content: space-between; margin-bottom: 5px; }
-.card-title { font-weight: bold; font-size: 16px; color: #333; }
-.tag { font-size: 10px; background: #e0e7ff; color: #4f46e5; padding: 2px 6px; border-radius: 4px; }
-.card-desc { font-size: 13px; color: #666; line-height: 1.4; display: block; }
+.page { padding: 32rpx; background: #f9fafb; min-height: 100vh; }
+.filters { white-space: nowrap; margin-bottom: 30rpx; }
+.chip { display: inline-block; padding: 12rpx 32rpx; background: white; border-radius: 40rpx; margin-right: 20rpx; border: 2rpx solid #eee; &.active { background: #4f46e5; border-color: #4f46e5; } }
+.chip-text { font-size: 26rpx; color: #666; &.active-text { color: white; } }
+.banner { background: #4f46e5; border-radius: 24rpx; padding: 40rpx; margin-bottom: 40rpx; color: white; }
+.banner-title { font-weight: bold; font-size: 36rpx; display: block; margin-bottom: 10rpx; }
+.banner-desc { font-size: 24rpx; opacity: 0.8; display: block; margin-bottom: 30rpx; }
+.gen-btn { background: white; color: #4f46e5; font-size: 28rpx; border-radius: 16rpx; font-weight: bold; }
+.card { background: white; border-radius: 24rpx; overflow: hidden; margin-bottom: 30rpx; box-shadow: 0 4rpx 10rpx rgba(0,0,0,0.05); }
+.card-img { width: 100%; height: 280rpx; }
+.card-body { padding: 30rpx; }
+.card-title { font-weight: bold; font-size: 32rpx; color: #333; display: block; margin-bottom: 10rpx; }
+.card-desc { font-size: 26rpx; color: #666; line-height: 1.4; }
 ```
+**`src/pages/workouts/index.config.ts`**: `export default definePageConfig({ navigationBarTitleText: '微健身' })`
 
 ---
 
-## 六、我的 (src/pages/profile/)
+### 5. 数据统计 `src/pages/stats/index.tsx`
 
-### 1. src/pages/profile/index.config.ts
-```typescript
-export default definePageConfig({
-  navigationBarTitleText: '个人中心'
-})
-```
-
-### 2. src/pages/profile/index.tsx
 ```tsx
-import React, { useState } from 'react';
-import { View, Text, Button, Image } from '@tarojs/components';
+import React, { useState, useEffect } from 'react';
+import { View, Text } from '@tarojs/components';
+import Taro from '@tarojs/taro';
+import { request } from '../../utils/request';
 import './index.scss';
 
-export default function Profile() {
-  const [user, setUser] = useState({ name: 'Guest', avatar: '' });
+export default function Stats() {
+  const [stats, setStats] = useState<any>(null);
+
+  useEffect(() => {
+    // 每次进入页面刷新数据
+    const fetchData = async () => {
+        const user = Taro.getStorageSync('user');
+        if (user && user.id) {
+            try {
+                const res = await request(`/stats?userId=${user.id}`);
+                setStats(res);
+            } catch (e) {}
+        }
+    };
+    fetchData();
+  }, []);
+
+  const todayMinutes = stats?.activity?.length > 0 ? stats.activity[stats.activity.length-1].sedentary_minutes : 0;
+  const percent = Math.min((todayMinutes / 480) * 100, 100); // 8小时预算
 
   return (
-    <View className='profile-page'>
-       <View className='user-card'>
-           <View className='avatar'>
-               {user.avatar ? <Image src={user.avatar} className='avatar-img' /> : <Text>U</Text>}
+    <View className='page'>
+       <View className='section'>
+           <Text className='sec-title'>健康久坐预算 (8小时)</Text>
+           <View className='progress-bg'>
+               <View className='progress-bar' style={{width: `${percent}%`, backgroundColor: percent > 90 ? '#ef4444' : '#22c55e'}}></View>
            </View>
-           <View className='info'>
-               <Text className='name'>{user.name}</Text>
-               <Text className='quote'>Keep Moving!</Text>
-           </View>
+           <Text className='hint'>已使用 {Math.floor(todayMinutes/60)} 小时 {todayMinutes%60} 分钟</Text>
        </View>
 
-       <View className='stats-row'>
-           <View className='stat-item'>
-               <Text className='val'>3</Text>
-               <Text className='label'>连续打卡</Text>
-           </View>
-           <View className='stat-item'>
-               <Text className='val'>12</Text>
-               <Text className='label'>总课程</Text>
+       <View className='section'>
+           <Text className='sec-title'>周趋势</Text>
+           <View className='chart'>
+               {(stats?.activity || []).map((day, idx) => {
+                   const h = Math.min((day.sedentary_minutes / 60) * 20, 150); // Scale height
+                   return (
+                       <View key={idx} className='bar-group'>
+                           <View className='bar' style={{height: `${h}rpx`}}></View>
+                           <Text className='date'>{day.activity_date_str.slice(5)}</Text>
+                       </View>
+                   )
+               })}
            </View>
        </View>
-       
-       <Button className='logout-btn'>退出登录</Button>
     </View>
   );
 }
 ```
 
-### 3. src/pages/profile/index.scss
+**`src/pages/stats/index.scss`**:
 ```scss
-.profile-page { padding: 20px; background: #f9fafb; min-height: 100vh; box-sizing: border-box; }
-.user-card { background: white; padding: 20px; border-radius: 12px; display: flex; align-items: center; margin-bottom: 20px; }
-.avatar { width: 60px; height: 60px; background: #e0e7ff; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #4f46e5; font-weight: bold; font-size: 24px; margin-right: 15px; overflow: hidden; }
-.avatar-img { width: 100%; height: 100%; }
-.name { font-weight: bold; font-size: 18px; display: block; color: #333; }
-.quote { font-size: 12px; color: #888; display: block; }
-.stats-row { display: flex; background: white; padding: 20px; border-radius: 12px; margin-bottom: 30px; }
-.stat-item { flex: 1; text-align: center; }
-.val { font-size: 20px; font-weight: bold; color: #4f46e5; display: block; }
-.label { font-size: 12px; color: #888; display: block; }
-.logout-btn { background: white; color: #ef4444; border: 1px solid #fee2e2; font-size: 14px; &::after { border: none; } }
+.page { padding: 32rpx; background: #f9fafb; min-height: 100vh; }
+.section { background: white; padding: 32rpx; border-radius: 24rpx; margin-bottom: 30rpx; }
+.sec-title { font-weight: bold; font-size: 32rpx; margin-bottom: 20rpx; display: block; }
+.progress-bg { height: 24rpx; background: #f3f4f6; border-radius: 12rpx; overflow: hidden; margin-bottom: 10rpx; }
+.progress-bar { height: 100%; transition: width 0.5s; }
+.hint { font-size: 24rpx; color: #666; }
+.chart { display: flex; align-items: flex-end; justify-content: space-between; height: 200rpx; padding-top: 20rpx; }
+.bar-group { display: flex; flex-direction: column; align-items: center; }
+.bar { width: 30rpx; background: #6366f1; border-radius: 6rpx 6rpx 0 0; }
+.date { font-size: 20rpx; color: #999; margin-top: 10rpx; }
 ```
+**`src/pages/stats/index.config.ts`**: `export default definePageConfig({ navigationBarTitleText: '数据统计' })`
+
+---
+
+### 6. 我的 (登录与勋章) `src/pages/profile/index.tsx`
+
+```tsx
+import React, { useState, useEffect } from 'react';
+import { View, Text, Button, Input } from '@tarojs/components';
+import Taro from '@tarojs/taro';
+import { request } from '../../utils/request';
+import './index.scss';
+
+export default function Profile() {
+  const [user, setUser] = useState<any>(null);
+  const [isLoginMode, setIsLoginMode] = useState(true); // false = Email Mode
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  useEffect(() => {
+    const saved = Taro.getStorageSync('user');
+    if (saved) setUser(saved);
+  }, []);
+
+  const handleWechatLogin = async () => {
+    try {
+        const { code } = await Taro.login();
+        const res = await request('/wechat-login', 'POST', { code });
+        if (res.user) {
+            Taro.setStorageSync('user', res.user);
+            setUser(res.user);
+            Taro.showToast({ title: '登录成功' });
+        }
+    } catch (e) {
+        Taro.showToast({ title: '登录失败', icon: 'none' });
+    }
+  };
+
+  const handleEmailLogin = async () => {
+      try {
+          const res = await request('/login', 'POST', { email, password });
+          if (res.user) {
+              Taro.setStorageSync('user', res.user);
+              setUser(res.user);
+              Taro.showToast({ title: '同步成功' });
+          }
+      } catch (e) {
+          Taro.showToast({ title: '账号或密码错误', icon: 'none' });
+      }
+  };
+
+  const logout = () => {
+      Taro.removeStorageSync('user');
+      setUser(null);
+  };
+
+  if (!user) {
+      return (
+          <View className='page login-container'>
+             <Text className='logo-text'>SitClock</Text>
+             {isLoginMode ? (
+                 <View>
+                    <Button className='wx-btn' onClick={handleWechatLogin}>微信一键登录</Button>
+                    <Text className='switch-link' onClick={() => setIsLoginMode(false)}>使用邮箱账号同步数据 &gt;</Text>
+                 </View>
+             ) : (
+                 <View className='form'>
+                     <Input className='input' placeholder='邮箱' onInput={e=>setEmail(e.detail.value)} />
+                     <Input className='input' password placeholder='密码' onInput={e=>setPassword(e.detail.value)} />
+                     <Button className='email-btn' onClick={handleEmailLogin}>登录并同步</Button>
+                     <Text className='switch-link' onClick={() => setIsLoginMode(true)}>&lt; 返回微信登录</Text>
+                 </View>
+             )}
+          </View>
+      )
+  }
+
+  return (
+    <View className='page'>
+       <View className='user-card'>
+           <View className='avatar'>{user.name[0]}</View>
+           <View className='info'>
+               <Text className='name'>{user.name}</Text>
+               <Text className='email'>{user.email || '微信用户'}</Text>
+           </View>
+       </View>
+
+       <View className='badges-sec'>
+           <Text className='sec-title'>我的勋章</Text>
+           <View className='badges-grid'>
+               <View className='badge-item unlocked'><Text>🚀</Text><Text>初次启程</Text></View>
+               <View className='badge-item'><Text>🔥</Text><Text>3天连胜</Text></View>
+               <View className='badge-item'><Text>🏆</Text><Text>健身达人</Text></View>
+           </View>
+       </View>
+       
+       <Button className='logout-btn' onClick={logout}>退出登录</Button>
+    </View>
+  );
+}
+```
+
+**`src/pages/profile/index.scss`**:
+```scss
+.page { padding: 32rpx; background: #f9fafb; min-height: 100vh; }
+.login-container { display: flex; flex-direction: column; justify-content: center; align-items: center; }
+.logo-text { font-size: 60rpx; font-weight: bold; color: #333; margin-bottom: 60rpx; }
+.wx-btn { background: #07c160; color: white; width: 500rpx; border-radius: 50rpx; margin-bottom: 30rpx; }
+.email-btn { background: #4f46e5; color: white; width: 500rpx; border-radius: 50rpx; margin-bottom: 30rpx; }
+.switch-link { color: #666; font-size: 28rpx; text-decoration: underline; margin-top: 20rpx; display: block; text-align: center; }
+.input { background: white; width: 500rpx; padding: 20rpx; margin-bottom: 20rpx; border-radius: 12rpx; border: 1px solid #ddd; }
+.user-card { background: white; padding: 40rpx; border-radius: 24rpx; display: flex; align-items: center; margin-bottom: 40rpx; }
+.avatar { width: 100rpx; height: 100rpx; background: #e0e7ff; border-radius: 50%; display: flex; justify-content: center; align-items: center; color: #4f46e5; font-size: 40rpx; font-weight: bold; margin-right: 30rpx; }
+.name { font-size: 36rpx; font-weight: bold; color: #333; display: block; }
+.email { font-size: 24rpx; color: #999; }
+.badges-sec { background: white; padding: 30rpx; border-radius: 24rpx; margin-bottom: 40rpx; }
+.sec-title { font-weight: bold; margin-bottom: 20rpx; display: block; }
+.badges-grid { display: flex; gap: 20rpx; }
+.badge-item { width: 140rpx; height: 140rpx; background: #f3f4f6; border-radius: 12rpx; display: flex; flex-direction: column; justify-content: center; align-items: center; font-size: 24rpx; color: #999; &.unlocked { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; } }
+.logout-btn { background: white; color: #ef4444; }
+```
+**`src/pages/profile/index.config.ts`**: `export default definePageConfig({ navigationBarTitleText: '个人中心' })`
