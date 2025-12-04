@@ -14,8 +14,8 @@ const https = require('https');
 const GOOGLE_API_KEY = process.env.API_KEY || "AIzaSyC2sn2k3fdY-JmJsYnXivy8UPspbjdADq4"; 
 
 // ⚠️⚠️⚠️ 微信小程序配置 (上线前请填入真实信息) ⚠️⚠️⚠️
-const WX_APP_ID = process.env.WX_APP_ID || ""; 
-const WX_APP_SECRET = process.env.WX_APP_SECRET || "";
+const WX_APP_ID = process.env.WX_APP_ID || "wx48f83362a572425c"; 
+const WX_APP_SECRET = process.env.WX_APP_SECRET || "fa7ae6041380320bdc10b863537ec78e";
 
 const app = express();
 const PORT = 3000;
@@ -80,7 +80,6 @@ db.getConnection(async (err, connection) => {
   try {
       await runQuery(`CREATE TABLE IF NOT EXISTS user_stats (user_id INT PRIMARY KEY, total_workouts INT DEFAULT 0, current_streak INT DEFAULT 0, last_workout_date DATE)`);
       
-      // Auto-Migrate Columns
       const checkCol = async (table, col, alterQuery) => {
           const res = await runQuery(`SELECT count(*) as count FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'moveease_db' AND TABLE_NAME = '${table}' AND COLUMN_NAME = '${col}'`);
           if (res[0].count === 0) {
@@ -99,7 +98,7 @@ db.getConnection(async (err, connection) => {
 
 // --- ROUTES ---
 
-app.get('/', (req, res) => res.send('✅ SitClock Backend v5.0 Running'));
+app.get('/', (req, res) => res.send('✅ SitClock Backend v6.0 Running'));
 
 app.post('/api/upload-avatar', upload.single('avatar'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file' });
@@ -132,27 +131,36 @@ app.post('/api/login', (req, res) => {
   });
 });
 
-// WeChat Login
+// WeChat Login (Updated V6.0)
 app.post('/api/wechat-login', async (req, res) => {
     const { code, userInfo } = req.body; 
     let openid = null;
     
+    // 1. Get OpenID from WeChat Server
     if (WX_APP_ID && WX_APP_SECRET && !code.startsWith('mock')) {
         try {
             const url = `https://api.weixin.qq.com/sns/jscode2session?appid=${WX_APP_ID}&secret=${WX_APP_SECRET}&js_code=${code}&grant_type=authorization_code`;
             const wxRes = await new Promise((resolve) => https.get(url, r => { let d=''; r.on('data', c=>d+=c); r.on('end', ()=>resolve(JSON.parse(d))); }));
-            if (wxRes.errcode) return res.status(400).json({ error: wxRes.errmsg });
+            if (wxRes.errcode) return res.status(400).json({ error: `WeChat Error: ${wxRes.errmsg}` });
             openid = wxRes.openid;
         } catch (e) { return res.status(500).json({ error: "WeChat connect failed" }); }
     } else {
         openid = `mock_openid_${code}`; 
     }
 
+    // 2. Find or Create User
     db.query('SELECT * FROM users WHERE wechat_openid = ?', [openid], async (err, results) => {
         if (results.length > 0) {
+            // Existing User: Login and Update Info if provided
             const user = results[0];
+            if (userInfo && userInfo.avatarUrl && user.avatar_url !== userInfo.avatarUrl) {
+                 db.query('UPDATE users SET avatar_url = ?, username = ? WHERE id = ?', [userInfo.avatarUrl, userInfo.nickName, user.id]);
+                 user.avatar_url = userInfo.avatarUrl;
+                 user.username = userInfo.nickName;
+            }
             return res.json({ message: 'Login success', user: { id: user.id.toString(), name: user.username, email: user.email || '', avatar: user.avatar_url || '' } });
         } else {
+            // New User: Register
             const name = userInfo?.nickName || `WeChat User`;
             const avatar = userInfo?.avatarUrl || '';
             const mockEmail = `${openid}@wechat.com`;
@@ -160,6 +168,7 @@ app.post('/api/wechat-login', async (req, res) => {
                 const hashedPassword = await bcrypt.hash(openid, 10);
                 db.query('INSERT INTO users (username, email, password_hash, avatar_url, wechat_openid) VALUES (?, ?, ?, ?, ?)', 
                 [name, mockEmail, hashedPassword, avatar, openid], (err, result) => {
+                    if (err) return res.status(500).json({ error: err.message });
                     res.status(201).json({ message: 'Registered', user: { id: result.insertId.toString(), name, email: mockEmail, avatar } });
                 });
             } catch (e) { res.status(500).json({ error: 'Server error' }); }
@@ -167,7 +176,6 @@ app.post('/api/wechat-login', async (req, res) => {
     });
 });
 
-// Profile Update
 app.post('/api/update-profile', (req, res) => {
   const { id, name, avatar } = req.body;
   db.query('UPDATE users SET username = ?, avatar_url = ? WHERE id = ?', [name, avatar, id], (err) => {
@@ -176,7 +184,6 @@ app.post('/api/update-profile', (req, res) => {
   });
 });
 
-// Announcements
 app.get('/api/announcements', (req, res) => {
     db.query('SELECT * FROM announcements ORDER BY created_at DESC LIMIT 10', (err, r) => res.json(r || []));
 });
@@ -184,7 +191,7 @@ app.post('/api/announcements', (req, res) => {
     db.query('INSERT INTO announcements (title, content) VALUES (?, ?)', [req.body.title, req.body.content], () => res.json({ message: 'Posted' }));
 });
 
-// Stats
+// Stats (Updated for robustness)
 app.get('/api/stats', (req, res) => {
     const { userId } = req.query;
     if(!userId) return res.status(400).json({error: "Missing userId"});
@@ -196,10 +203,10 @@ app.get('/api/stats', (req, res) => {
              if (statsResults.length === 0) {
                  db.query('SELECT username, avatar_url FROM users WHERE id = ?', [userId], (err, userRes) => {
                      const userInfo = userRes[0] || {};
-                     res.json({ stats: { total_workouts: 0, current_streak: 0, last_workout_date: null, timer_end_at: 0, timer_duration: 0, username: userInfo.username, avatar_url: userInfo.avatar_url }, activity: dailyResults });
+                     res.json({ stats: { total_workouts: 0, current_streak: 0, last_workout_date: null, timer_end_at: 0, timer_duration: 0, username: userInfo.username, avatar_url: userInfo.avatar_url }, activity: dailyResults || [] });
                  });
              } else {
-                 res.json({ stats: statsResults[0], activity: dailyResults });
+                 res.json({ stats: statsResults[0], activity: dailyResults || [] });
              }
         });
     });

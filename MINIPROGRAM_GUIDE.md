@@ -1,5 +1,5 @@
 
-# SitClock 微信小程序开发终极指南 (V5.1 修复版)
+# SitClock 微信小程序开发终极指南 (V6.0 完美适配版)
 
 请严格按照以下步骤操作，覆盖您现有的 Taro 项目文件。
 
@@ -10,15 +10,15 @@
 src/
   app.config.ts
   app.scss
-  constants.ts         <-- 关键：公共逻辑
+  constants.ts         <-- 公共逻辑
   utils/
-    request.ts         <-- 关键：请求封装
+    request.ts         <-- 请求封装
   pages/
-    index/             <-- 监测/计时
+    index/             <-- 监测/计时 (动画+公告)
     workouts/          <-- 课程/AI
-    player/            <-- 播放器/结算 (修复逻辑)
-    stats/             <-- 数据/图表
-    profile/           <-- 登录/勋章
+    player/            <-- 播放器 (逻辑修复)
+    stats/             <-- 数据 (可拖动图表)
+    profile/           <-- 登录/勋章 (真机适配)
 ```
 
 ---
@@ -26,8 +26,6 @@ src/
 ## 二、核心文件代码 (请直接复制覆盖)
 
 ### 1. 公共常量 `src/constants.ts` (修复语法报错版)
-
-**注意**：这里我们移除了 `.?.` 写法，改用 `&&`，确保在所有微信基础库中都能运行。
 
 ```typescript
 export const INSPIRATIONAL_QUOTES = [
@@ -38,7 +36,7 @@ export const INSPIRATIONAL_QUOTES = [
 ];
 
 export const getBadges = (stats: any, todayMinutes: number) => {
-  // 修复：不使用可选链 (?.)，兼容旧手机
+  // 使用 && 替代 ?. 兼容所有版本
   const total = (stats && stats.total_workouts) ? stats.total_workouts : 0;
   const streak = (stats && stats.current_streak) ? stats.current_streak : 0;
   const isWithinBudget = todayMinutes <= 480;
@@ -83,7 +81,7 @@ export default defineAppConfig({
   pages: [
     'pages/index/index',
     'pages/workouts/index',
-    'pages/player/index', // 确保播放器页面已注册
+    'pages/player/index', 
     'pages/stats/index',
     'pages/profile/index'
   ],
@@ -93,7 +91,6 @@ export default defineAppConfig({
     navigationBarTitleText: 'SitClock',
     navigationBarTextStyle: 'black'
   },
-  // 开启按需注入，提升启动速度
   lazyCodeLoading: "requiredComponents",
   tabBar: {
     color: "#999",
@@ -111,9 +108,169 @@ export default defineAppConfig({
 
 ---
 
-### 4. 跟练播放器 `src/pages/player/index.tsx` (重点修复逻辑)
+### 4. 监测页 `src/pages/index/index.tsx` (动画+适配+公告)
 
-**修复说明**：增加了 `isReady` 状态。只有当数据加载完成且时间设置成功后，才允许计时开始，防止“秒退”。
+```tsx
+import React, { useState, useEffect } from 'react';
+import { View, Text, Button } from '@tarojs/components';
+import Taro, { useDidShow } from '@tarojs/taro';
+import { request } from '../../utils/request';
+import './index.scss';
+
+export default function Index() {
+  const [sedentaryTime, setSedentaryTime] = useState(0);
+  const [isMonitoring, setIsMonitoring] = useState(true);
+  const [quickTimerLeft, setQuickTimerLeft] = useState(0);
+  const [announcement, setAnnouncement] = useState<any>(null);
+  const [showAnn, setShowAnn] = useState(false);
+
+  useDidShow(async () => {
+      try {
+          const list = await request('/announcements');
+          if(list && list.length > 0) setAnnouncement(list[0]);
+      } catch(e){}
+  });
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
+  useEffect(() => {
+    let interval: any;
+    if (isMonitoring && quickTimerLeft === 0) {
+      interval = setInterval(() => setSedentaryTime(p => p + 1), 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isMonitoring, quickTimerLeft]);
+
+  useEffect(() => {
+    let interval: any;
+    if (quickTimerLeft > 0) {
+      interval = setInterval(() => {
+        setQuickTimerLeft(prev => {
+          if (prev <= 1) {
+             Taro.showToast({ title: '时间到了！', icon: 'none' });
+             Taro.vibrateLong();
+             return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [quickTimerLeft]);
+
+  return (
+    <View className='container'>
+      {/* 公告弹窗 */}
+      {showAnn && announcement && (
+          <View className='modal-mask' onClick={()=>setShowAnn(false)}>
+              <View className='modal' onClick={e=>e.stopPropagation()}>
+                  <Text className='m-title'>{announcement.title}</Text>
+                  <Text className='m-content'>{announcement.content}</Text>
+                  <Button className='m-btn' onClick={()=>setShowAnn(false)}>关闭</Button>
+              </View>
+          </View>
+      )}
+
+      <View className='header'>
+          <Text className='title'>SitClock</Text>
+          {announcement && <Text className='ann-btn' onClick={()=>setShowAnn(true)}>🔔 公告</Text>}
+      </View>
+      
+      {/* 呼吸灯圆环 */}
+      <View className={`circle ${quickTimerLeft > 0 ? 'red' : ''} ${isMonitoring ? 'pulse' : ''}`}>
+         <Text className='time'>{formatTime(quickTimerLeft || sedentaryTime)}</Text>
+         <Text className='label'>{quickTimerLeft > 0 ? '倒计时' : '久坐时长'}</Text>
+      </View>
+
+      <View className='quick-row'>
+          {[30, 45, 60].map(m => (
+              <Button key={m} className='pill' onClick={() => setQuickTimerLeft(m*60)}>{m}分</Button>
+          ))}
+          <Button className='pill' onClick={() => setQuickTimerLeft(0)}>重置</Button>
+      </View>
+
+      <View className='row'>
+         <Button className='btn outline' onClick={() => setIsMonitoring(!isMonitoring)}>{isMonitoring ? '暂停' : '继续'}</Button>
+         <Button className='btn primary' onClick={()=>{Taro.showToast({title:'状态重置',icon:'success'});setSedentaryTime(0)}}>动一下</Button>
+      </View>
+    </View>
+  );
+}
+```
+*scss*: `.container{padding:40rpx;align-items:center;display:flex;flex-direction:column} .header{width:100%;display:flex;justify-content:space-between;align-items:center;margin-bottom:40rpx} .title{font-size:48rpx;font-weight:bold;color:#333} .ann-btn{font-size:28rpx;color:#4f46e5;background:#e0e7ff;padding:10rpx 20rpx;border-radius:30rpx} .circle{width:480rpx;height:480rpx;border-radius:50%;border:20rpx solid #e0e7ff;display:flex;flex-direction:column;justify-content:center;align-items:center;margin:40rpx 0} .circle.red{border-color:#fee2e2} .circle.pulse{animation:pulse 2s infinite} @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.02)}100%{transform:scale(1)}} .time{font-size:100rpx;font-weight:bold;font-family:monospace;color:#4f46e5} .circle.red .time{color:#dc2626} .label{font-size:28rpx;color:#888;margin-top:10rpx} .quick-row{display:flex;gap:20rpx;margin-bottom:40rpx} .pill{font-size:28rpx;padding:0 30rpx;border-radius:40rpx;background:white;line-height:60rpx;height:60rpx} .row{width:100%;display:flex;gap:30rpx} .btn{flex:1;border-radius:24rpx;height:100rpx;line-height:100rpx;font-size:32rpx} .primary{background:#4f46e5;color:white} .outline{background:white;color:#4f46e5;border:2rpx solid #4f46e5} .modal-mask{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:99;display:flex;align-items:center;justify-content:center} .modal{width:600rpx;background:white;border-radius:30rpx;padding:40rpx;display:flex;flex-direction:column} .m-title{font-size:36rpx;font-weight:bold;margin-bottom:20rpx} .m-content{font-size:28rpx;color:#666;line-height:1.5;margin-bottom:40rpx} .m-btn{width:100%;background:#4f46e5;color:white}`
+
+---
+
+### 5. 课程页 `src/pages/workouts/index.tsx` (AI 修复)
+
+```tsx
+import React, { useState } from 'react';
+import { View, Text, Button, Image, ScrollView } from '@tarojs/components';
+import Taro from '@tarojs/taro';
+import { request } from '../../utils/request';
+import './index.scss';
+
+export default function Workouts() {
+  const [plans, setPlans] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [cat, setCat] = useState('neck');
+
+  const gen = async () => {
+    setLoading(true);
+    try {
+      const res = await request('/generate-workout', 'POST', { focusArea: cat, language: 'zh' });
+      if (Array.isArray(res)) {
+          setPlans(res);
+      } else {
+          throw new Error('格式错误');
+      }
+    } catch (e) {
+      Taro.showToast({title:'生成失败，请重试',icon:'none'});
+    } finally { setLoading(false); }
+  };
+
+  const start = (item: any) => {
+      Taro.navigateTo({ url: `/pages/player/index?data=${encodeURIComponent(JSON.stringify(item))}` });
+  };
+
+  return (
+    <View className='page'>
+       <ScrollView scrollX className='tabs'>
+          {['neck','waist','eyes','fullbody'].map(c => (
+              <View key={c} className={`tab ${cat===c?'active':''}`} onClick={()=>setCat(c)}><Text>{c}</Text></View>
+          ))}
+       </ScrollView>
+       <View className='banner'>
+           <View>
+               <Text className='b-title'>AI 智能计划生成</Text>
+               <Text className='b-desc'>定制您的2分钟微健身</Text>
+           </View>
+           <Button className='b-btn' onClick={gen} disabled={loading}>{loading?'生成中...':'立即生成'}</Button>
+       </View>
+       {plans.length === 0 && <Text className='empty'>暂无计划，点击上方生成</Text>}
+       {plans.map((item, i) => (
+           <View key={i} className='card' onClick={() => start(item)}>
+               <Image src={item.imageUrl} className='img' mode='aspectFill' />
+               <View className='info'>
+                   <Text className='name'>{item.name}</Text>
+                   <Text className='dur'>{item.duration}秒</Text>
+               </View>
+               <Button className='play-btn'>开始</Button>
+           </View>
+       ))}
+    </View>
+  );
+}
+```
+*scss*: `.page{padding:30rpx;background:#f9fafb;min-height:100vh} .tabs{white-space:nowrap;margin-bottom:30rpx;height:80rpx} .tab{display:inline-block;padding:10rpx 30rpx;background:white;border-radius:40rpx;margin-right:20rpx;border:2rpx solid #eee;font-size:28rpx} .tab.active{background:#4f46e5;color:white} .banner{background:linear-gradient(to right, #4f46e5, #6366f1);padding:40rpx;border-radius:30rpx;color:white;margin-bottom:40rpx;display:flex;justify-content:space-between;align-items:center} .b-title{font-weight:bold;font-size:36rpx;display:block} .b-desc{font-size:24rpx;opacity:0.8} .b-btn{background:white;color:#4f46e5;font-size:24rpx;padding:0 30rpx;border-radius:30rpx;margin:0} .card{background:white;border-radius:30rpx;overflow:hidden;margin-bottom:30rpx;box-shadow:0 4rpx 20rpx rgba(0,0,0,0.05);position:relative} .img{width:100%;height:300rpx} .info{padding:30rpx} .name{font-weight:bold;font-size:32rpx;display:block;margin-bottom:10rpx} .dur{font-size:24rpx;color:#888;background:#f3f4f6;padding:4rpx 12rpx;border-radius:10rpx} .play-btn{position:absolute;right:30rpx;bottom:30rpx;background:#4f46e5;color:white;font-size:24rpx;border-radius:30rpx;padding:0 30rpx} .empty{text-align:center;color:#999;font-size:28rpx;display:block;margin-top:100rpx}`
+
+---
+
+### 6. 播放器 `src/pages/player/index.tsx` (逻辑安全版)
 
 ```tsx
 import React, { useState, useEffect } from 'react';
@@ -125,36 +282,31 @@ import './index.scss';
 export default function Player() {
   const router = useRouter();
   const [ex, setEx] = useState<any>(null);
-  const [time, setTime] = useState(45); // 默认给一个非0值防止秒退
-  const [active, setActive] = useState(false); // 初始暂停，等待 Ready
-  const [isReady, setIsReady] = useState(false); // 数据加载状态
+  const [time, setTime] = useState(45); 
+  const [active, setActive] = useState(false); 
+  const [isReady, setIsReady] = useState(false); 
 
-  // 1. 初始化加载数据
   useEffect(() => {
       if (router.params.data) {
           try {
               const item = JSON.parse(decodeURIComponent(router.params.data));
               setEx(item);
-              setTime(item.duration || 45); // 确保有时间
+              setTime(item.duration || 45); 
               setIsReady(true);
-              setActive(true); // 数据加载好后自动开始
+              setActive(true); 
           } catch (e) {
-              Taro.showToast({title: '课程加载失败', icon:'none'});
-              setTimeout(() => Taro.navigateBack(), 1000);
+              Taro.navigateBack();
           }
       }
   }, [router]);
 
-  // 2. 计时器逻辑
   useEffect(() => {
       let interval: any;
-      // 只有在 Ready 且 Active 且 时间>0 时才走字
       if (isReady && active && time > 0) {
           interval = setInterval(() => {
               setTime(t => t - 1);
           }, 1000);
       } else if (isReady && time === 0 && active) {
-          // 时间归零，完成训练
           finish();
       }
       return () => clearInterval(interval);
@@ -162,23 +314,17 @@ export default function Player() {
 
   const finish = async () => {
       setActive(false);
-      Taro.vibrateLong();
-      
       const user = Taro.getStorageSync('user');
       if (user) {
           try {
-              // 尝试同步数据到后端
-              // 实际项目中应先获取当前数据再累加，或后端提供 increment 接口
-              // 这里发送请求触发后端记录更新时间
               await request('/stats', 'POST', {
                   userId: user.id,
-                  totalWorkouts: 1, // 简化的同步信号
-                  // ... 其他字段需完整
+                  totalWorkouts: 1, // 触发后端累加
+                  currentStreak: 0 // 后端会处理
               });
           } catch(e) {}
       }
-      
-      Taro.showToast({title:'完成！', icon:'success', duration: 2000});
+      Taro.showToast({title:'完成！', icon:'success'});
       setTimeout(() => Taro.navigateBack(), 1500);
   };
 
@@ -203,152 +349,15 @@ export default function Player() {
   );
 }
 ```
-*scss*: `.p-loading{text-align:center;padding-top:100px;color:white} .p-page{height:100vh;position:relative;background:black;color:white} .p-bg{width:100%;height:100%;opacity:0.4} .overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px} .circle{width:200px;height:200px;border:5px solid #4f46e5;border-radius:50%;display:flex;flex-direction:column;justify-content:center;align-items:center;margin-bottom:30px} .count{font-size:60px;font-weight:bold} .p-name{font-size:24px;font-weight:bold;margin-bottom:10px} .p-desc{text-align:center;opacity:0.8;margin-bottom:40px} .p-ctrl{display:flex;gap:20px;width:100%} .c-btn{flex:1;background:#4f46e5;color:white} .stop{background:#4b5563}`
+*scss*: `.p-loading{text-align:center;padding-top:200rpx;color:white} .p-page{height:100vh;position:relative;background:black;color:white} .p-bg{width:100%;height:100%;opacity:0.4} .overlay{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40rpx} .circle{width:400rpx;height:400rpx;border:10rpx solid #4f46e5;border-radius:50%;display:flex;flex-direction:column;justify-content:center;align-items:center;margin-bottom:60rpx} .count{font-size:120rpx;font-weight:bold} .p-name{font-size:48rpx;font-weight:bold;margin-bottom:20rpx} .p-desc{text-align:center;opacity:0.8;margin-bottom:80rpx;font-size:32rpx;line-height:1.6} .p-ctrl{display:flex;gap:40rpx;width:100%} .c-btn{flex:1;background:#4f46e5;color:white;border-radius:20rpx} .stop{background:#4b5563}`
 
 ---
 
-### 5. 监测页 `src/pages/index/index.tsx`
-
-```tsx
-import React, { useState, useEffect } from 'react';
-import { View, Text, Button } from '@tarojs/components';
-import Taro from '@tarojs/taro';
-import './index.scss';
-
-export default function Index() {
-  const [sedentaryTime, setSedentaryTime] = useState(0);
-  const [isMonitoring, setIsMonitoring] = useState(true);
-  const [quickTimerLeft, setQuickTimerLeft] = useState(0);
-
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const s = (seconds % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  };
-
-  // 正计时逻辑
-  useEffect(() => {
-    let interval: any;
-    if (isMonitoring && quickTimerLeft === 0) {
-      interval = setInterval(() => setSedentaryTime(p => p + 1), 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isMonitoring, quickTimerLeft]);
-
-  // 倒计时逻辑
-  useEffect(() => {
-    let interval: any;
-    if (quickTimerLeft > 0) {
-      interval = setInterval(() => {
-        setQuickTimerLeft(prev => {
-          if (prev <= 1) {
-             Taro.showToast({ title: '时间到了！', icon: 'none' });
-             Taro.vibrateLong();
-             return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [quickTimerLeft]);
-
-  const handleMoved = () => {
-    Taro.showToast({ title: '状态已重置', icon: 'success' });
-    setSedentaryTime(0);
-  };
-
-  return (
-    <View className='container'>
-      <View className='header'><Text className='title'>SitClock</Text><Text className='sub'>保持健康办公</Text></View>
-      
-      {/* 呼吸灯圆环 */}
-      <View className={`circle ${quickTimerLeft > 0 ? 'red' : ''}`}>
-         <Text className='time'>{formatTime(quickTimerLeft || sedentaryTime)}</Text>
-         <Text className='label'>{quickTimerLeft > 0 ? '倒计时' : '久坐时长'}</Text>
-      </View>
-
-      {/* 快速定时按钮 */}
-      <View className='quick-row'>
-          {[30, 45, 60].map(m => (
-              <Button key={m} className='pill' onClick={() => setQuickTimerLeft(m*60)}>{m}分</Button>
-          ))}
-          <Button className='pill' onClick={() => setQuickTimerLeft(0)}>重置</Button>
-      </View>
-
-      <View className='row'>
-         <Button className='btn outline' onClick={() => setIsMonitoring(!isMonitoring)}>{isMonitoring ? '暂停' : '继续'}</Button>
-         <Button className='btn primary' onClick={handleMoved}>动一下</Button>
-      </View>
-    </View>
-  );
-}
-```
-*scss*: `.container{padding:40px;align-items:center;display:flex;flex-direction:column} .circle{width:240px;height:240px;border-radius:50%;border:10px solid #e0e7ff;display:flex;flex-direction:column;justify-content:center;align-items:center;margin:40px 0} .circle.red{border-color:#fee2e2;animation:pulse 1s infinite} @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.05)}100%{transform:scale(1)}} .time{font-size:50px;font-weight:bold;font-family:monospace;color:#4f46e5} .circle.red .time{color:#dc2626} .quick-row{display:flex;gap:10px;margin-bottom:20px} .pill{font-size:12px;border-radius:20px;background:white} .row{width:100%;display:flex;gap:15px} .btn{flex:1;border-radius:12px} .primary{background:#4f46e5;color:white} .outline{background:white;color:#4f46e5;border:1px solid #4f46e5}`
-
----
-
-### 6. 课程页 `src/pages/workouts/index.tsx`
+### 7. 数据页 `src/pages/stats/index.tsx` (滚动图表)
 
 ```tsx
 import React, { useState } from 'react';
-import { View, Text, Button, Image, ScrollView } from '@tarojs/components';
-import Taro from '@tarojs/taro';
-import { request } from '../../utils/request';
-import './index.scss';
-
-export default function Workouts() {
-  const [plans, setPlans] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [cat, setCat] = useState('neck');
-
-  const gen = async () => {
-    setLoading(true);
-    try {
-      const res = await request('/generate-workout', 'POST', { focusArea: cat, language: 'zh' });
-      setPlans(res);
-    } catch (e) {
-      Taro.showToast({title:'生成失败',icon:'none'});
-    } finally { setLoading(false); }
-  };
-
-  const start = (item: any) => {
-      Taro.navigateTo({ url: `/pages/player/index?data=${encodeURIComponent(JSON.stringify(item))}` });
-  };
-
-  return (
-    <View className='page'>
-       <ScrollView scrollX className='tabs'>
-          {['neck','waist','eyes','fullbody'].map(c => (
-              <View key={c} className={`tab ${cat===c?'active':''}`} onClick={()=>setCat(c)}><Text>{c}</Text></View>
-          ))}
-       </ScrollView>
-       <View className='banner'>
-           <Text className='b-title'>AI 智能生成</Text>
-           <Button className='b-btn' onClick={gen} disabled={loading}>{loading?'生成中...':'生成计划'}</Button>
-       </View>
-       {plans.map((item, i) => (
-           <View key={i} className='card' onClick={() => start(item)}>
-               <Image src={item.imageUrl} className='img' mode='aspectFill' />
-               <View className='info'>
-                   <Text className='name'>{item.name}</Text>
-                   <Button className='play-btn'>开始跟练</Button>
-               </View>
-           </View>
-       ))}
-    </View>
-  );
-}
-```
-*scss*: `.page{padding:20px;background:#f9fafb;min-height:100vh} .tabs{white-space:nowrap;margin-bottom:20px} .tab{display:inline-block;padding:5px 15px;background:white;border-radius:20px;margin-right:10px;border:1px solid #eee} .tab.active{background:#4f46e5;color:white} .banner{background:#4f46e5;padding:20px;border-radius:15px;color:white;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center} .b-btn{background:white;color:#4f46e5;font-size:12px} .card{background:white;border-radius:15px;overflow:hidden;margin-bottom:15px;box-shadow:0 2px 10px rgba(0,0,0,0.05)} .img{width:100%;height:150px} .info{padding:15px} .name{font-weight:bold;display:block;margin-bottom:10px} .play-btn{background:#4f46e5;color:white;font-size:14px}`
-
----
-
-### 7. 数据统计 `src/pages/stats/index.tsx`
-
-```tsx
-import React, { useState, useEffect } from 'react';
-import { View, Text } from '@tarojs/components';
+import { View, Text, ScrollView } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { request } from '../../utils/request';
 import './index.scss';
@@ -356,9 +365,7 @@ import './index.scss';
 export default function Stats() {
   const [data, setData] = useState<any>(null);
 
-  useDidShow(() => load()); // 每次显示页面都刷新
-
-  const load = async () => {
+  useDidShow(async () => {
       const user = Taro.getStorageSync('user');
       if (user) {
           try {
@@ -366,9 +373,8 @@ export default function Stats() {
               setData(res);
           } catch(e) {}
       }
-  };
+  });
 
-  // 使用 && 替代 ?.
   const todayMinutes = (data && data.activity && data.activity.length > 0) 
       ? data.activity[data.activity.length-1].sedentary_minutes 
       : 0;
@@ -383,28 +389,31 @@ export default function Stats() {
             <Text className='sub'>已用 {Math.floor(todayMinutes/60)}小时{todayMinutes%60}分</Text>
         </View>
         <View className='card'>
-            <Text className='head'>周趋势</Text>
-            <View className='chart'>
-                {(data && data.activity) ? data.activity.map((d, i) => (
-                    <View key={i} className='bar-box'>
-                        <View className='bar' style={{height: `${Math.min(d.sedentary_minutes/3, 150)}px`}}></View>
-                        <Text className='day'>{d.activity_date_str.slice(8)}</Text>
-                    </View>
-                )) : <Text>暂无数据</Text>}
-            </View>
+            <Text className='head'>周趋势 (可左右滑动)</Text>
+            {/* ScrollView for chart */}
+            <ScrollView scrollX className='chart-scroll'>
+                <View className='chart'>
+                    {(data && data.activity) ? data.activity.map((d, i) => (
+                        <View key={i} className='bar-box'>
+                            <View className='bar' style={{height: `${Math.min(d.sedentary_minutes, 300)}rpx`}}></View>
+                            <Text className='day'>{d.activity_date_str.slice(5)}</Text>
+                        </View>
+                    )) : <Text className='empty'>暂无数据</Text>}
+                </View>
+            </ScrollView>
         </View>
     </View>
   );
 }
 ```
-*scss*: `.s-page{padding:20px;background:#f3f4f6;min-height:100vh} .card{background:white;padding:20px;border-radius:15px;margin-bottom:20px} .head{font-weight:bold;display:block;margin-bottom:15px} .progress{height:10px;background:#f3f4f6;border-radius:5px;overflow:hidden;margin-bottom:10px} .fill{height:100%;background:#4f46e5} .chart{display:flex;align-items:flex-end;justify-content:space-between;height:180px} .bar{width:15px;background:#6366f1;border-radius:5px 5px 0 0} .day{font-size:10px;color:#999;margin-top:5px}`
+*scss*: `.s-page{padding:30rpx;background:#f3f4f6;min-height:100vh} .card{background:white;padding:30rpx;border-radius:30rpx;margin-bottom:30rpx} .head{font-weight:bold;font-size:32rpx;display:block;margin-bottom:30rpx} .progress{height:20rpx;background:#f3f4f6;border-radius:10rpx;overflow:hidden;margin-bottom:20rpx} .fill{height:100%;background:#4f46e5} .chart-scroll{width:100%} .chart{display:flex;align-items:flex-end;min-width:100%;gap:30rpx;height:400rpx;padding-bottom:20rpx} .bar-box{display:flex;flex-direction:column;align-items:center} .bar{width:40rpx;background:#6366f1;border-radius:10rpx 10rpx 0 0;min-height:10rpx} .day{font-size:20rpx;color:#999;margin-top:10rpx;white-space:nowrap}`
 
 ---
 
-### 8. 我的 (登录+勋章) `src/pages/profile/index.tsx`
+### 8. 我的 `src/pages/profile/index.tsx` (真机登录+数据同步)
 
 ```tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, Text, Button, Input } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { request } from '../../utils/request';
@@ -435,8 +444,12 @@ export default function Profile() {
 
   const wxLogin = async () => {
       try {
+          // 1. 获取用户信息 (新版接口)
+          const { userInfo } = await Taro.getUserProfile({ desc: '用于完善会员资料' });
+          // 2. 获取登录 Code
           const { code } = await Taro.login();
-          const res = await request('/wechat-login', 'POST', { code });
+          // 3. 发送给后端
+          const res = await request('/wechat-login', 'POST', { code, userInfo });
           if (res.user) {
               Taro.setStorageSync('user', res.user);
               setUser(res.user);
@@ -451,7 +464,7 @@ export default function Profile() {
           if (res.user) {
               Taro.setStorageSync('user', res.user);
               setUser(res.user);
-              loadStats(res.user.id);
+              loadStats(res.user.id); // 登录成功立即拉取 Web 端数据
           }
       } catch(e) { Taro.showToast({title:'账号错误',icon:'none'}); }
   };
@@ -477,7 +490,6 @@ export default function Profile() {
       )
   }
 
-  // 修复：不使用可选链
   const todayMin = (stats && stats.activity && stats.activity.length > 0) 
       ? stats.activity[stats.activity.length-1].sedentary_minutes 
       : 0;
@@ -488,7 +500,7 @@ export default function Profile() {
   return (
     <View className='page'>
        <View className='u-card'>
-           <View className='avi'>{user.name ? user.name[0] : 'U'}</View>
+           <Image src={user.avatar} className='avi' />
            <View>
                <Text className='u-name'>{user.name}</Text>
                <Text className='u-quote'>{quote.zh}</Text>
@@ -512,4 +524,4 @@ export default function Profile() {
   );
 }
 ```
-*scss*: `.page{padding:20px;background:#f9fafb;min-height:100vh} .login-box{height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center} .l-title{font-size:30px;font-weight:bold;margin-bottom:40px} .wx-btn,.e-btn{width:80%;border-radius:25px;margin-bottom:20px;color:white} .wx-btn{background:#07c160} .e-btn{background:#4f46e5} .inp{width:80%;padding:10px;background:white;margin-bottom:10px;border-radius:10px} .link{color:#666;font-size:14px;text-decoration:underline} .u-card{background:white;padding:20px;border-radius:15px;display:flex;align-items:center;margin-bottom:20px} .avi{width:50px;height:50px;background:#e0e7ff;border-radius:50%;display:flex;justify-content:center;align-items:center;color:#4f46e5;font-weight:bold;margin-right:15px} .u-name{font-weight:bold;display:block} .u-quote{font-size:12px;color:#999} .b-sec{background:white;padding:20px;border-radius:15px;margin-bottom:20px} .st{font-weight:bold;display:block;margin-bottom:15px} .grid{display:flex;gap:10px;flex-wrap:wrap} .b-item{width:30%;height:80px;background:#f3f4f6;border-radius:10px;display:flex;flex-direction:column;justify-content:center;align-items:center;opacity:0.5} .b-item.on{background:#ecfdf5;color:#047857;opacity:1} .out{background:white;color:red;margin-top:20px}`
+*scss*: `.page{padding:30rpx;background:#f9fafb;min-height:100vh} .login-box{height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center} .l-title{font-size:60rpx;font-weight:bold;margin-bottom:80rpx} .wx-btn,.e-btn{width:80%;border-radius:50rpx;margin-bottom:40rpx;color:white;height:90rpx;line-height:90rpx} .wx-btn{background:#07c160} .e-btn{background:#4f46e5} .inp{width:80%;padding:20rpx;background:white;margin-bottom:20rpx;border-radius:20rpx;height:80rpx} .link{color:#666;font-size:28rpx;text-decoration:underline} .u-card{background:white;padding:40rpx;border-radius:30rpx;display:flex;align-items:center;margin-bottom:40rpx} .avi{width:100rpx;height:100rpx;border-radius:50%;margin-right:30rpx;background:#eee} .u-name{font-weight:bold;font-size:36rpx;display:block} .u-quote{font-size:24rpx;color:#999} .b-sec{background:white;padding:40rpx;border-radius:30rpx;margin-bottom:40rpx} .st{font-weight:bold;font-size:32rpx;display:block;margin-bottom:30rpx} .grid{display:flex;gap:20rpx;flex-wrap:wrap} .b-item{width:30%;height:160rpx;background:#f3f4f6;border-radius:20rpx;display:flex;flex-direction:column;justify-content:center;align-items:center;opacity:0.5} .b-item.on{background:#ecfdf5;color:#047857;opacity:1} .icon{font-size:50rpx;margin-bottom:10rpx} .bn{font-size:22rpx} .out{background:white;color:red;margin-top:40rpx}`
