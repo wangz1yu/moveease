@@ -1,5 +1,13 @@
 
-import { Badge, Exercise, Language, Announcement, Quote, UserStats } from './types';
+import { Badge, Exercise, Language, Announcement, Quote, UserStats, MoodConfig } from './types';
+
+export const MOODS: Record<string, MoodConfig> = {
+  happy:   { id: 'happy',   label: 'Joy',    color: '#4CAF50', icon: '🟢' }, // Green
+  calm:    { id: 'calm',    label: 'Calm',   color: '#FFEB3B', icon: '🟡' }, // Yellow
+  angry:   { id: 'angry',   label: 'Anger',  color: '#F44336', icon: '🔴' }, // Red
+  sad:     { id: 'sad',     label: 'Sad',    color: '#2196F3', icon: '🔵' }, // Blue
+  anxious: { id: 'anxious', label: 'Anxiety',color: '#9C27B0', icon: '🟣' }, // Purple
+};
 
 export const TRANSLATIONS = {
   en: {
@@ -33,6 +41,7 @@ export const TRANSLATIONS = {
       workouts: 'Workouts',
       stats: 'Stats',
       profile: 'Profile',
+      lifelog: 'LifeLog',
     },
     home: {
       tracking: 'Tracking Movement',
@@ -135,6 +144,23 @@ export const TRANSLATIONS = {
       titlePh: 'Title',
       contentPh: 'Content goes here...',
     },
+    lifelog: {
+      title: 'Life Log',
+      subtitle: 'Color your day with emotions',
+      newEntry: 'New Entry',
+      placeholder: 'What happened today?',
+      mood: 'How do you feel?',
+      history: 'Timeline',
+      empty: 'No logs yet. Start recording your journey!',
+      delete: 'Delete',
+      moods: {
+        happy: 'Happy',
+        calm: 'Calm',
+        angry: 'Angry',
+        sad: 'Sad',
+        anxious: 'Anxious'
+      }
+    },
     feedback: [
         'Great job!',
         'Keep it up!',
@@ -177,6 +203,7 @@ export const TRANSLATIONS = {
       workouts: '课程',
       stats: '数据',
       profile: '我的',
+      lifelog: '日志',
     },
     home: {
       tracking: '正在监测久坐',
@@ -278,6 +305,23 @@ export const TRANSLATIONS = {
       postBtn: '发布公告',
       titlePh: '标题',
       contentPh: '公告内容...',
+    },
+    lifelog: {
+      title: '人生日志',
+      subtitle: '用色彩定义每一天',
+      newEntry: '记一笔',
+      placeholder: '今天发生了什么？',
+      mood: '此刻心情',
+      history: '时光轴',
+      empty: '暂无记录，开始记录你的人生轨迹吧！',
+      delete: '删除',
+      moods: {
+        happy: '开心',
+        calm: '平淡',
+        angry: '生气',
+        sad: '难过',
+        anxious: '焦虑'
+      }
     },
     feedback: [
         '太棒了！',

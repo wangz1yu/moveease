@@ -1,5 +1,6 @@
+
 import React from 'react';
-import { Home, Dumbbell, BarChart2, User } from 'lucide-react';
+import { Home, Dumbbell, BarChart2, User, BookOpen } from 'lucide-react';
 import { AppView, Language } from '../types';
 import { TRANSLATIONS } from '../constants';
 
@@ -15,6 +16,7 @@ const Navigation: React.FC<NavigationProps> = ({ currentView, setView, lang }) =
   const navItems = [
     { view: AppView.HOME, icon: Home, label: t.monitor },
     { view: AppView.WORKOUTS, icon: Dumbbell, label: t.workouts },
+    { view: AppView.LIFELOG, icon: BookOpen, label: t.lifelog },
     { view: AppView.STATS, icon: BarChart2, label: t.stats },
     { view: AppView.PROFILE, icon: User, label: t.profile },
   ];

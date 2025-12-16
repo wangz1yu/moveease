@@ -59,7 +59,8 @@ export enum AppView {
   HOME = 'HOME',
   WORKOUTS = 'WORKOUTS',
   STATS = 'STATS',
-  PROFILE = 'PROFILE'
+  PROFILE = 'PROFILE',
+  LIFELOG = 'LIFELOG' // New View
 }
 
 export interface Badge {
@@ -75,4 +76,22 @@ export interface Announcement {
   title: string;
   created_at: string; // From DB timestamp
   content: string;
+}
+
+// --- LifeLog Types ---
+export type MoodType = 'happy' | 'calm' | 'sad' | 'angry' | 'anxious';
+
+export interface MoodConfig {
+  id: MoodType;
+  label: string;
+  color: string; // Hex
+  icon: string; // Emoji
+}
+
+export interface LifeLog {
+  id: string;
+  user_id: string;
+  content: string;
+  mood: MoodType;
+  created_at: string; // ISO String
 }

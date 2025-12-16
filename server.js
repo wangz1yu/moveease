@@ -93,6 +93,10 @@ db.getConnection(async (err, connection) => {
       await checkCol('users', 'wechat_openid', "ALTER TABLE users ADD COLUMN wechat_openid VARCHAR(255) UNIQUE");
       
       await runQuery(`CREATE TABLE IF NOT EXISTS announcements (id INT AUTO_INCREMENT PRIMARY KEY, title VARCHAR(255) NOT NULL, content TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`);
+
+      // LifeLog Table
+      await runQuery(`CREATE TABLE IF NOT EXISTS life_logs (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, content TEXT, mood VARCHAR(20), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`);
+
   } catch (e) { console.error("Table init error", e); }
 });
 
@@ -233,6 +237,34 @@ app.post('/api/stats', (req, res) => {
 app.post('/api/timer', (req, res) => {
     db.query(`INSERT INTO user_stats (user_id, timer_end_at, timer_duration) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE timer_end_at = VALUES(timer_end_at), timer_duration = VALUES(timer_duration)`, 
     [req.body.userId, req.body.endAt, req.body.duration], () => res.json({ message: "Timer saved" }));
+});
+
+// --- LifeLog APIs ---
+app.get('/api/lifelogs', (req, res) => {
+    const { userId } = req.query;
+    if(!userId) return res.status(400).json({error: "Missing userId"});
+    db.query('SELECT * FROM life_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 100', [userId], (err, results) => {
+        if(err) return res.status(500).json({error: err.message});
+        res.json(results);
+    });
+});
+
+app.post('/api/lifelogs', (req, res) => {
+    const { userId, content, mood } = req.body;
+    if(!userId || !mood) return res.status(400).json({error: "Missing fields"});
+    db.query('INSERT INTO life_logs (user_id, content, mood) VALUES (?, ?, ?)', [userId, content, mood], (err, result) => {
+        if(err) return res.status(500).json({error: err.message});
+        res.status(201).json({id: result.insertId, user_id: userId, content, mood, created_at: new Date()});
+    });
+});
+
+app.delete('/api/lifelogs/:id', (req, res) => {
+    const { userId } = req.body; // Basic ownership check
+    if(!userId) return res.status(400).json({error: "Missing userId for auth"});
+    db.query('DELETE FROM life_logs WHERE id = ? AND user_id = ?', [req.params.id, userId], (err, result) => {
+        if(err) return res.status(500).json({error: err.message});
+        res.json({message: "Deleted"});
+    });
 });
 
 // AI Gen (With Fallback)

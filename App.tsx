@@ -6,6 +6,7 @@ import WorkoutPlayer from './components/WorkoutPlayer';
 import DNDManager from './components/DNDManager';
 import Auth from './components/Auth';
 import Announcements from './components/Announcements';
+import LifeLog from './components/LifeLog'; // Import New Component
 import { AppView, Exercise, UserSettings, User, DailyStat, UserStats, Quote } from './types';
 import { TRANSLATIONS, getMockExercises, getBadges, INSPIRATIONAL_QUOTES } from './constants';
 import { generateSmartWorkout } from './services/geminiService';
@@ -1466,6 +1467,7 @@ const App: React.FC = () => {
         <>
           {currentView === AppView.HOME && renderHome()}
           {currentView === AppView.WORKOUTS && renderWorkouts()}
+          {currentView === AppView.LIFELOG && <LifeLog currentUser={currentUser} lang={lang} />}
           {currentView === AppView.STATS && renderStats()}
           {currentView === AppView.PROFILE && renderProfile()}
           <Navigation currentView={currentView} setView={setCurrentView} lang={lang} />
