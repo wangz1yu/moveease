@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Calendar, Smile, X, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Trash2, Calendar, Smile, X, Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Clock } from 'lucide-react';
 import { Language, LifeLog as LifeLogType, User, MoodType } from '../types';
 import { TRANSLATIONS, MOODS } from '../constants';
 
@@ -8,6 +8,8 @@ interface LifeLogProps {
   currentUser: User;
   lang: Language;
 }
+
+type ViewMode = 'week' | 'month' | 'year';
 
 const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
   const t = TRANSLATIONS[lang].lifelog;
@@ -17,14 +19,28 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   
+  // Calendar View State
+  const [viewMode, setViewMode] = useState<ViewMode>('month');
+  const [referenceDate, setReferenceDate] = useState(new Date());
+
   // New Log State
   const [content, setContent] = useState('');
   const [selectedMood, setSelectedMood] = useState<MoodType | ''>('');
+  const [entryDate, setEntryDate] = useState(''); // ISO string for input
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     fetchLogs();
   }, [currentUser.id]);
+
+  // Set default entry date to now when modal opens
+  useEffect(() => {
+      if (showModal && !entryDate) {
+          const now = new Date();
+          now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+          setEntryDate(now.toISOString().slice(0, 16));
+      }
+  }, [showModal]);
 
   const fetchLogs = async () => {
     setIsLoading(true);
@@ -51,13 +67,16 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
         body: JSON.stringify({
           userId: currentUser.id,
           content,
-          mood: selectedMood
+          mood: selectedMood,
+          date: entryDate // Send selected date
         })
       });
       if(res.ok) {
         setShowModal(false);
         setContent('');
         setSelectedMood('');
+        // Reset date to null so it re-inits next time
+        setEntryDate(''); 
         fetchLogs();
       }
     } catch(e) {
@@ -81,37 +100,156 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
       }
   };
 
-  // Calendar Logic: Generate last 30 days grid
-  const renderCalendar = () => {
-      const days = [];
-      const today = new Date();
-      // Simple 28-day grid (4 weeks)
-      for(let i=27; i>=0; i--) {
-          const d = new Date();
-          d.setDate(today.getDate() - i);
-          const dateStr = d.toISOString().split('T')[0];
-          
-          // Find log for this day (prioritize latest)
-          const log = logs.find(l => l.created_at.startsWith(dateStr));
-          const moodConfig = log ? MOODS[log.mood] : null;
+  // --- CALENDAR LOGIC ---
 
-          days.push(
-              <div key={i} className="flex flex-col items-center">
+  const handlePrev = () => {
+      const newDate = new Date(referenceDate);
+      if (viewMode === 'year') newDate.setFullYear(newDate.getFullYear() - 1);
+      if (viewMode === 'month') newDate.setMonth(newDate.getMonth() - 1);
+      if (viewMode === 'week') newDate.setDate(newDate.getDate() - 7);
+      setReferenceDate(newDate);
+  };
+
+  const handleNext = () => {
+      const newDate = new Date(referenceDate);
+      if (viewMode === 'year') newDate.setFullYear(newDate.getFullYear() + 1);
+      if (viewMode === 'month') newDate.setMonth(newDate.getMonth() + 1);
+      if (viewMode === 'week') newDate.setDate(newDate.getDate() + 7);
+      setReferenceDate(newDate);
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+      // e.deltaY > 0 means scrolling DOWN (Zoom Out)
+      // e.deltaY < 0 means scrolling UP (Zoom In)
+      if (e.deltaY > 0) {
+          if (viewMode === 'week') setViewMode('month');
+          else if (viewMode === 'month') setViewMode('year');
+      } else {
+          if (viewMode === 'year') setViewMode('month');
+          else if (viewMode === 'month') setViewMode('week');
+      }
+  };
+
+  const manualZoomIn = () => {
+      if (viewMode === 'year') setViewMode('month');
+      else if (viewMode === 'month') setViewMode('week');
+  };
+
+  const manualZoomOut = () => {
+      if (viewMode === 'week') setViewMode('month');
+      else if (viewMode === 'month') setViewMode('year');
+  };
+
+  const renderCalendar = () => {
+      const items = [];
+      const currentYear = referenceDate.getFullYear();
+      const currentMonth = referenceDate.getMonth();
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      if (viewMode === 'year') {
+          // Github Style Contribution Graph
+          // Render days for the whole year
+          const startOfYear = new Date(currentYear, 0, 1);
+          const endOfYear = new Date(currentYear, 11, 31);
+          
+          for (let d = new Date(startOfYear); d <= endOfYear; d.setDate(d.getDate() + 1)) {
+              const dateStr = d.toISOString().split('T')[0];
+              const log = logs.find(l => l.created_at.startsWith(dateStr));
+              const moodConfig = log ? MOODS[log.mood] : null;
+
+              items.push(
                   <div 
-                    className="w-8 h-8 rounded-lg mb-1 flex items-center justify-center text-xs shadow-sm transition-transform hover:scale-110"
+                    key={dateStr}
+                    title={`${dateStr} ${moodConfig?.label || ''}`}
+                    className="w-2 h-2 rounded-sm"
                     style={{
-                        backgroundColor: moodConfig ? moodConfig.color : '#f3f4f6',
-                        border: moodConfig ? 'none' : '1px solid #e5e7eb'
+                        backgroundColor: moodConfig ? moodConfig.color : '#e5e7eb',
+                        opacity: moodConfig ? 1 : 0.4
                     }}
-                    title={dateStr}
-                  >
-                      {moodConfig?.icon}
-                  </div>
-                  <span className="text-[10px] text-gray-400">{d.getDate()}</span>
+                  />
+              );
+          }
+          return (
+              <div className="flex flex-wrap gap-1 content-start h-40 overflow-y-auto no-scrollbar justify-center">
+                  {items}
               </div>
           );
+      } 
+      
+      if (viewMode === 'month') {
+          // Standard Calendar Grid
+          const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+          
+          for (let i = 1; i <= daysInMonth; i++) {
+              const d = new Date(currentYear, currentMonth, i);
+              const dateStr = d.toISOString().split('T')[0];
+              const log = logs.find(l => l.created_at.startsWith(dateStr));
+              const moodConfig = log ? MOODS[log.mood] : null;
+              const isToday = dateStr === todayStr;
+
+              items.push(
+                  <div key={dateStr} className="flex flex-col items-center">
+                      <div 
+                        className={`w-8 h-8 rounded-lg mb-1 flex items-center justify-center text-xs shadow-sm transition-transform hover:scale-110 ${isToday ? 'ring-2 ring-indigo-400' : ''}`}
+                        style={{
+                            backgroundColor: moodConfig ? moodConfig.color : '#f9fafb',
+                            border: moodConfig ? 'none' : '1px solid #e5e7eb'
+                        }}
+                      >
+                          {moodConfig?.icon}
+                      </div>
+                      <span className="text-[10px] text-gray-400">{i}</span>
+                  </div>
+              );
+          }
+          return <div className="grid grid-cols-7 gap-3">{items}</div>;
       }
-      return days;
+
+      if (viewMode === 'week') {
+          // Detailed Week View
+          // Find start of week (Sunday)
+          const startOfWeek = new Date(referenceDate);
+          startOfWeek.setDate(referenceDate.getDate() - referenceDate.getDay());
+
+          for (let i = 0; i < 7; i++) {
+              const d = new Date(startOfWeek);
+              d.setDate(startOfWeek.getDate() + i);
+              const dateStr = d.toISOString().split('T')[0];
+              const log = logs.find(l => l.created_at.startsWith(dateStr));
+              const moodConfig = log ? MOODS[log.mood] : null;
+              const isToday = dateStr === todayStr;
+
+              items.push(
+                  <div key={dateStr} className={`flex-1 flex flex-col items-center p-2 rounded-xl border ${isToday ? 'border-indigo-400 bg-indigo-50' : 'border-gray-100 bg-white'}`}>
+                      <span className="text-xs font-bold text-gray-500 mb-2">
+                        {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]}
+                      </span>
+                      <div 
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-xl mb-2 transition-transform hover:scale-110"
+                        style={{
+                            backgroundColor: moodConfig ? moodConfig.color : '#f3f4f6',
+                            border: moodConfig ? 'none' : '1px solid #e5e7eb'
+                        }}
+                      >
+                          {moodConfig?.icon}
+                      </div>
+                      <span className="text-xs font-bold text-gray-800">{d.getDate()}</span>
+                  </div>
+              );
+          }
+          return <div className="flex space-x-2">{items}</div>;
+      }
+  };
+
+  const getHeaderLabel = () => {
+      if (viewMode === 'year') return referenceDate.getFullYear().toString();
+      if (viewMode === 'month') return referenceDate.toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-US', { month: 'long', year: 'numeric' });
+      // Week range
+      const start = new Date(referenceDate);
+      start.setDate(referenceDate.getDate() - referenceDate.getDay());
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      return `${start.toLocaleDateString(undefined, {month:'short', day:'numeric'})} - ${end.toLocaleDateString(undefined, {month:'short', day:'numeric'})}`;
   };
 
   return (
@@ -131,14 +269,33 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
               </button>
           </div>
 
-          {/* Pixel Calendar View */}
-          <div className="bg-white mt-4">
-              <div className="flex justify-between items-center mb-2">
-                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Last 28 Days</h3>
-                  <Calendar size={14} className="text-gray-400"/>
+          {/* Interactive Calendar View */}
+          <div 
+            className="bg-white mt-4 select-none"
+            onWheel={handleWheel}
+          >
+              <div className="flex justify-between items-center mb-3">
+                  <div className="flex items-center space-x-2">
+                      <button onClick={handlePrev} className="p-1 hover:bg-gray-100 rounded-full"><ChevronLeft size={16}/></button>
+                      <h3 className="text-sm font-bold text-gray-700 w-32 text-center">{getHeaderLabel()}</h3>
+                      <button onClick={handleNext} className="p-1 hover:bg-gray-100 rounded-full"><ChevronRight size={16}/></button>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                       <button onClick={manualZoomOut} className={`p-1 rounded hover:bg-gray-100 ${viewMode === 'year' ? 'text-gray-300' : 'text-gray-600'}`}><ZoomOut size={16}/></button>
+                       <span className="text-[10px] uppercase font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded">{viewMode}</span>
+                       <button onClick={manualZoomIn} className={`p-1 rounded hover:bg-gray-100 ${viewMode === 'week' ? 'text-gray-300' : 'text-gray-600'}`}><ZoomIn size={16}/></button>
+                  </div>
               </div>
-              <div className="grid grid-cols-7 gap-3">
+              
+              <div className="min-h-[100px] transition-all duration-300 ease-in-out">
                   {renderCalendar()}
+              </div>
+              
+              <div className="text-center mt-2">
+                   <span className="text-[10px] text-gray-300 flex items-center justify-center gap-1">
+                       <Calendar size={10} /> 
+                       {lang === 'zh' ? '滚动鼠标切换视图' : 'Scroll to zoom'}
+                   </span>
               </div>
           </div>
       </div>
@@ -192,6 +349,19 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
                       <button onClick={() => setShowModal(false)} className="bg-gray-100 p-2 rounded-full hover:bg-gray-200">
                           <X size={20} className="text-gray-500" />
                       </button>
+                  </div>
+
+                  {/* Date Picker */}
+                  <div className="mb-4">
+                       <label className="text-xs font-bold text-gray-500 mb-2 block flex items-center">
+                           <Clock size={12} className="mr-1"/> Date & Time
+                       </label>
+                       <input 
+                           type="datetime-local" 
+                           value={entryDate}
+                           onChange={(e) => setEntryDate(e.target.value)}
+                           className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                       />
                   </div>
 
                   <div className="mb-6">

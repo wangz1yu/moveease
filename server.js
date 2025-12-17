@@ -243,18 +243,23 @@ app.post('/api/timer', (req, res) => {
 app.get('/api/lifelogs', (req, res) => {
     const { userId } = req.query;
     if(!userId) return res.status(400).json({error: "Missing userId"});
-    db.query('SELECT * FROM life_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 100', [userId], (err, results) => {
+    // Increased limit for historical view
+    db.query('SELECT * FROM life_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 500', [userId], (err, results) => {
         if(err) return res.status(500).json({error: err.message});
         res.json(results);
     });
 });
 
 app.post('/api/lifelogs', (req, res) => {
-    const { userId, content, mood } = req.body;
+    const { userId, content, mood, date } = req.body;
     if(!userId || !mood) return res.status(400).json({error: "Missing fields"});
-    db.query('INSERT INTO life_logs (user_id, content, mood) VALUES (?, ?, ?)', [userId, content, mood], (err, result) => {
+    
+    // Use provided date or default to now
+    const createdDate = date ? new Date(date) : new Date();
+
+    db.query('INSERT INTO life_logs (user_id, content, mood, created_at) VALUES (?, ?, ?, ?)', [userId, content, mood, createdDate], (err, result) => {
         if(err) return res.status(500).json({error: err.message});
-        res.status(201).json({id: result.insertId, user_id: userId, content, mood, created_at: new Date()});
+        res.status(201).json({id: result.insertId, user_id: userId, content, mood, created_at: createdDate});
     });
 });
 
