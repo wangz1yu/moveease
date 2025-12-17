@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Calendar, Smile, X, Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Clock } from 'lucide-react';
 import { Language, LifeLog as LifeLogType, User, MoodType } from '../types';
 import { TRANSLATIONS, MOODS } from '../constants';
