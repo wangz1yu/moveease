@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Calendar, Smile, X, Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Clock } from 'lucide-react';
+import { Plus, Trash2, Calendar, Smile, X, Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Clock, Search, ArrowUpDown, AlignLeft } from 'lucide-react';
 import { Language, LifeLog as LifeLogType, User, MoodType } from '../types';
 import { TRANSLATIONS, MOODS } from '../constants';
 
@@ -22,6 +22,10 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
   // Calendar View State
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [referenceDate, setReferenceDate] = useState(new Date());
+
+  // Search & Sort State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isAscending, setIsAscending] = useState(false); // Default to Newest First (desc)
 
   // New Log State
   const [content, setContent] = useState('');
@@ -100,6 +104,36 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
       }
   };
 
+  // --- FILTER & SORT LOGIC ---
+
+  const filteredLogs = useMemo(() => {
+    // 1. Filter
+    let result = logs.filter(log => 
+        log.content.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    
+    // 2. Sort
+    result.sort((a, b) => {
+        const dateA = new Date(a.created_at).getTime();
+        const dateB = new Date(b.created_at).getTime();
+        return isAscending ? dateA - dateB : dateB - dateA;
+    });
+    
+    return result;
+  }, [logs, searchQuery, isAscending]);
+
+  // Group logs by Month for the Timeline View
+  const groupedLogs = useMemo(() => {
+      const groups: Record<string, LifeLogType[]> = {};
+      filteredLogs.forEach(log => {
+          const date = new Date(log.created_at);
+          const key = date.toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-US', { year: 'numeric', month: 'long' });
+          if (!groups[key]) groups[key] = [];
+          groups[key].push(log);
+      });
+      return groups;
+  }, [filteredLogs, lang]);
+
   // --- CALENDAR LOGIC ---
 
   const handlePrev = () => {
@@ -119,8 +153,6 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
   };
 
   const handleWheel = (e: React.WheelEvent) => {
-      // e.deltaY > 0 means scrolling DOWN (Zoom Out)
-      // e.deltaY < 0 means scrolling UP (Zoom In)
       if (e.deltaY > 0) {
           if (viewMode === 'week') setViewMode('month');
           else if (viewMode === 'month') setViewMode('year');
@@ -145,17 +177,17 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
-  // Map logs by local date string for O(1) lookup and correct local date matching
+  // Map logs by local date string for O(1) lookup
+  // Note: Uses filteredLogs so search affects calendar too!
   const logsMap = useMemo(() => {
       const map: Record<string, LifeLogType> = {};
-      logs.forEach(l => {
+      filteredLogs.forEach(l => {
           const date = new Date(l.created_at);
           const key = getLocalYMD(date);
-          // Only store the first log found for a date to match original logic, or could store array
           if (!map[key]) map[key] = l; 
       });
       return map;
-  }, [logs]);
+  }, [filteredLogs]);
 
   const renderCalendar = () => {
       const items = [];
@@ -164,8 +196,6 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
       const todayStr = getLocalYMD(new Date());
 
       if (viewMode === 'year') {
-          // Github Style Contribution Graph
-          // Render days for the whole year
           const startOfYear = new Date(currentYear, 0, 1);
           const endOfYear = new Date(currentYear, 11, 31);
           
@@ -194,7 +224,6 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
       } 
       
       if (viewMode === 'month') {
-          // Standard Calendar Grid
           const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
           
           for (let i = 1; i <= daysInMonth; i++) {
@@ -223,8 +252,6 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
       }
 
       if (viewMode === 'week') {
-          // Detailed Week View
-          // Find start of week (Sunday)
           const startOfWeek = new Date(referenceDate);
           startOfWeek.setDate(referenceDate.getDate() - referenceDate.getDay());
 
@@ -272,8 +299,8 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
   return (
     <div className="min-h-screen bg-gray-50 pb-24 relative">
       {/* Header */}
-      <div className="bg-white px-6 pt-12 pb-6 rounded-b-3xl shadow-sm border-b border-gray-100">
-          <div className="flex justify-between items-start mb-4">
+      <div className="bg-white px-6 pt-12 pb-6 rounded-b-3xl shadow-sm border-b border-gray-100 z-20 relative">
+          <div className="flex justify-between items-start mb-6">
               <div>
                   <h1 className="text-2xl font-bold text-gray-900">{t.title}</h1>
                   <p className="text-sm text-gray-500">{t.subtitle}</p>
@@ -286,9 +313,21 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
               </button>
           </div>
 
+          {/* Search Bar */}
+          <div className="relative mb-6">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <input 
+                  type="text" 
+                  placeholder={lang === 'zh' ? '搜索日记内容...' : 'Search logs...'}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 bg-gray-100 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+              />
+          </div>
+
           {/* Interactive Calendar View */}
           <div 
-            className="bg-white mt-4 select-none"
+            className="bg-white select-none"
             onWheel={handleWheel}
           >
               <div className="flex justify-between items-center mb-3">
@@ -318,39 +357,87 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
       </div>
 
       {/* Timeline List */}
-      <div className="px-4 py-6">
-          <h3 className="text-sm font-bold text-gray-600 mb-4 ml-2">{t.history}</h3>
+      <div className="px-6 py-6">
+          <div className="flex justify-between items-center mb-6">
+              <h3 className="text-sm font-bold text-gray-600 flex items-center">
+                  <AlignLeft size={16} className="mr-2"/>
+                  {t.history}
+              </h3>
+              <button 
+                onClick={() => setIsAscending(!isAscending)}
+                className="flex items-center space-x-1 text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors"
+              >
+                  <ArrowUpDown size={14} />
+                  <span>{isAscending ? (lang === 'zh' ? '最早' : 'Oldest') : (lang === 'zh' ? '最新' : 'Newest')}</span>
+              </button>
+          </div>
           
           {isLoading ? (
               <div className="flex justify-center py-10"><Loader2 className="animate-spin text-gray-400"/></div>
-          ) : logs.length === 0 ? (
-              <div className="text-center py-12 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200 mx-2">
+          ) : filteredLogs.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
                   <Smile size={48} className="mx-auto mb-3 opacity-20" />
-                  <p className="text-sm">{t.empty}</p>
+                  <p className="text-sm">{searchQuery ? (lang === 'zh' ? '无搜索结果' : 'No matches found') : t.empty}</p>
               </div>
           ) : (
-              <div className="space-y-4">
-                  {logs.map(log => {
-                      const mood = MOODS[log.mood];
-                      const date = new Date(log.created_at);
-                      return (
-                          <div key={log.id} className="bg-white p-4 rounded-xl shadow-sm border-l-4 flex gap-4 animate-in slide-in-from-bottom-2" style={{borderLeftColor: mood.color}}>
-                              <div className="flex flex-col items-center justify-center min-w-[3rem]">
-                                  <span className="text-2xl">{mood.icon}</span>
-                                  <span className="text-[10px] font-bold text-gray-400 mt-1">{date.getHours()}:{date.getMinutes().toString().padStart(2,'0')}</span>
-                              </div>
-                              <div className="flex-1">
-                                  <p className="text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">{log.content}</p>
-                                  <div className="flex justify-between items-center mt-2">
-                                      <span className="text-xs text-gray-400">{date.toLocaleDateString()}</span>
-                                      <button onClick={() => handleDelete(log.id)} className="text-gray-300 hover:text-red-400">
-                                          <Trash2 size={14} />
-                                      </button>
-                                  </div>
-                              </div>
+              <div className="relative border-l-2 border-indigo-100 ml-4 space-y-8 pb-8">
+                  {Object.entries(groupedLogs).map(([groupLabel, groupLogs]) => (
+                      <div key={groupLabel}>
+                          {/* Sticky Group Header */}
+                          <div className="sticky top-0 bg-gray-50 z-10 py-2 -ml-6 pl-10 mb-4 flex items-center">
+                               <span className="font-bold text-gray-500 bg-white border border-gray-200 px-3 py-1 rounded-full text-xs shadow-sm">
+                                   {groupLabel}
+                               </span>
                           </div>
-                      );
-                  })}
+
+                          <div className="space-y-6">
+                            {groupLogs.map(log => {
+                                const mood = MOODS[log.mood];
+                                const date = new Date(log.created_at);
+                                return (
+                                    <div key={log.id} className="relative pl-8">
+                                        {/* Timeline Dot */}
+                                        <div 
+                                            className="absolute left-[-5px] top-6 w-3 h-3 rounded-full border-2 border-white shadow-sm z-0"
+                                            style={{backgroundColor: mood.color}}
+                                        />
+                                        
+                                        {/* Content Card */}
+                                        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div className="flex items-center space-x-2">
+                                                    <span className="text-xl" role="img" aria-label={mood.label}>{mood.icon}</span>
+                                                    <span 
+                                                        className="text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wide opacity-80"
+                                                        style={{backgroundColor: mood.color + '20', color: mood.color}} // 20 is hex for alpha
+                                                    >
+                                                        {t.moods[log.mood as keyof typeof t.moods]}
+                                                    </span>
+                                                </div>
+                                                <span className="text-xs font-mono text-gray-400">
+                                                    {date.getHours().toString().padStart(2,'0')}:{date.getMinutes().toString().padStart(2,'0')}
+                                                </span>
+                                            </div>
+                                            
+                                            <p className="text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">
+                                                {log.content}
+                                            </p>
+
+                                            <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-50">
+                                                <span className="text-xs text-gray-400">
+                                                    {date.getDate()} {date.toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-US', { weekday: 'short' })}
+                                                </span>
+                                                <button onClick={() => handleDelete(log.id)} className="text-gray-300 hover:text-red-400 p-1">
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                          </div>
+                      </div>
+                  ))}
               </div>
           )}
       </div>
