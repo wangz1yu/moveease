@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Calendar, Smile, X, Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Clock } from 'lucide-react';
 import { Language, LifeLog as LifeLogType, User, MoodType } from '../types';
 import { TRANSLATIONS, MOODS } from '../constants';
@@ -140,11 +140,28 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
       else if (viewMode === 'month') setViewMode('year');
   };
 
+  // Helper to get local YYYY-MM-DD string
+  const getLocalYMD = (d: Date) => {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  // Map logs by local date string for O(1) lookup and correct local date matching
+  const logsMap = useMemo(() => {
+      const map: Record<string, LifeLogType> = {};
+      logs.forEach(l => {
+          const date = new Date(l.created_at);
+          const key = getLocalYMD(date);
+          // Only store the first log found for a date to match original logic, or could store array
+          if (!map[key]) map[key] = l; 
+      });
+      return map;
+  }, [logs]);
+
   const renderCalendar = () => {
       const items = [];
       const currentYear = referenceDate.getFullYear();
       const currentMonth = referenceDate.getMonth();
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getLocalYMD(new Date());
 
       if (viewMode === 'year') {
           // Github Style Contribution Graph
@@ -153,8 +170,8 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
           const endOfYear = new Date(currentYear, 11, 31);
           
           for (let d = new Date(startOfYear); d <= endOfYear; d.setDate(d.getDate() + 1)) {
-              const dateStr = d.toISOString().split('T')[0];
-              const log = logs.find(l => l.created_at.startsWith(dateStr));
+              const dateStr = getLocalYMD(d);
+              const log = logsMap[dateStr];
               const moodConfig = log ? MOODS[log.mood] : null;
 
               items.push(
@@ -182,8 +199,8 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
           
           for (let i = 1; i <= daysInMonth; i++) {
               const d = new Date(currentYear, currentMonth, i);
-              const dateStr = d.toISOString().split('T')[0];
-              const log = logs.find(l => l.created_at.startsWith(dateStr));
+              const dateStr = getLocalYMD(d);
+              const log = logsMap[dateStr];
               const moodConfig = log ? MOODS[log.mood] : null;
               const isToday = dateStr === todayStr;
 
@@ -214,8 +231,8 @@ const LifeLog: React.FC<LifeLogProps> = ({ currentUser, lang }) => {
           for (let i = 0; i < 7; i++) {
               const d = new Date(startOfWeek);
               d.setDate(startOfWeek.getDate() + i);
-              const dateStr = d.toISOString().split('T')[0];
-              const log = logs.find(l => l.created_at.startsWith(dateStr));
+              const dateStr = getLocalYMD(d);
+              const log = logsMap[dateStr];
               const moodConfig = log ? MOODS[log.mood] : null;
               const isToday = dateStr === todayStr;
 
